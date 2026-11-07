@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>怪物彈珠羈絆場次工具</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="bg-decoration"></div>
+
+    <div class="container main-container">
+        <header class="app-header text-center">
+            <div class="icon-badge mx-auto mb-3">🤝</div>
+            <h1>怪物彈珠羈絆場次工具</h1>
+
+            <div id="cloudStatus" class="cloud-status">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="cloudStatusText">連線中...</span>
+            </div>
+
+            <div id="authErrorMsg" class="auth-error" style="display: none;"></div>
+
+            <div id="auth-container" class="mt-2">
+                <button type="button" id="google-login-btn" class="auth-btn login" style="display: none;">
+                    <i class="bi bi-google"></i> 登入 Google 帳號以啟用雲端功能
+                </button>
+                <div id="user-info" style="display: none;">
+                    <img id="user-avatar" src="" alt="" class="rounded-circle" style="width: 30px; height: 30px;">
+                    <span id="user-display-name" class="fw-bold"></span>
+                    <button type="button" id="logout-btn" class="btn btn-sm btn-outline-secondary">登出</button>
+                </div>
+            </div>
+            <div class="today-label mt-2">今天（台灣時間）：<span id="todayLabel"></span></div>
+        </header>
+
+        <!-- 帳號切換 -->
+        <nav class="account-tabs" id="accountTabs" aria-label="帳號"></nav>
+
+        <!-- 目前帳號 -->
+        <main id="accountPanel"></main>
+
+        <!-- 設定與資料管理 -->
+        <section class="section-card mt-4 mb-5">
+            <div class="card-header">
+                <h2><i class="bi bi-gear-fill"></i> 設定與資料</h2>
+            </div>
+            <div class="p-2">
+                <div class="row g-3 align-items-end">
+                    <div class="col-sm-6 col-md-4">
+                        <label for="globalStaminaPerGame" class="form-label">每場體力（預設值）</label>
+                        <input type="number" inputmode="numeric" min="1" class="form-control" id="globalStaminaPerGame">
+                        <div class="form-text">每段羈絆也可以個別設定。</div>
+                    </div>
+                    <div class="col-md-8 d-flex flex-wrap gap-2">
+                        <button type="button" id="exportBtn" class="btn btn-success"><i class="bi bi-download"></i> 下載備份</button>
+                        <button type="button" id="importBtn" class="btn btn-info text-white"><i class="bi bi-folder2-open"></i> 載入備份</button>
+                        <input type="file" id="importFile" accept=".json" hidden>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- 懸浮工具箱 (工具連結會改用工具箱 tools.js 的清單；讀不到時使用下面的連結) -->
+    <div class="toolbox-menu-wrapper">
+        <div class="toolbox-items-list">
+            <a href="https://emily4027.github.io/monster-strike-toolbox/" class="toolbox-item toolbox-home">
+                <i class="bi bi-house-fill"></i> 工具箱首頁
+            </a>
+            <a href="https://emily4027.github.io/monster-strike-fruit-assign/" class="toolbox-item">🍏 果實分配計算機</a>
+            <a href="https://emily4027.github.io/monster-strike-gacha/" class="toolbox-item">📊 抽卡統計工具</a>
+            <a href="https://emily4027.github.io/monster-strike-bond/" class="toolbox-item active">🤝 羈絆場次工具 (現行)</a>
+        </div>
+        <button type="button" class="toolbox-main-btn"><i class="bi bi-tools"></i> 工具箱</button>
+    </div>
+
+    <a href="https://github.com/emily4027/monster-strike-bond" target="_blank" rel="noopener" class="github-project-link" title="前往 GitHub 專案頁面">
+        <i class="bi bi-github"></i> GitHub
+    </a>
+
+    <!-- 訊息提示框 (可附一個動作按鈕) -->
+    <div id="toast" role="status" aria-live="polite">
+        <span id="toastText"></span>
+        <button type="button" id="toastAction" class="btn btn-sm btn-light" hidden></button>
+    </div>
+
+    <!-- Modal：帳號 -->
+    <div class="modal fade" id="accountModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <form class="modal-content" id="accountForm" novalidate>
+                <div class="modal-header">
+                    <h5 class="modal-title" id="accountModalTitle">新增帳號</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
+                </div>
+                <div class="modal-body">
+                    <label for="accountName" class="form-label">遊戲帳號名稱</label>
+                    <input type="text" class="form-control mb-3" id="accountName" maxlength="40" required>
+                    <label for="accountLevel" class="form-label">我的等級</label>
+                    <input type="number" inputmode="numeric" min="1" class="form-control" id="accountLevel" required>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">儲存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal：隊友 -->
+    <div class="modal fade" id="bondModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <form class="modal-content" id="bondForm" novalidate>
+                <div class="modal-header">
+                    <h5 class="modal-title" id="bondModalTitle">新增隊友</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="restoreSection" class="restore-section mb-3">
+                        <button type="button" class="btn btn-outline-primary btn-sm w-100" id="restoreToggle">
+                            <i class="bi bi-clock-history"></i> 從歷史紀錄找回（接續之前的次數）
+                        </button>
+                        <div id="restoreList" class="list-group mt-2" hidden></div>
+                    </div>
+                    <label for="partnerName" class="form-label">隊友遊戲名稱</label>
+                    <input type="text" class="form-control mb-3" id="partnerName" maxlength="40" required>
+
+                    <label class="form-label" for="partnerPlatform">社群帳號</label>
+                    <div class="input-group mb-2">
+                        <select class="form-select social-select" id="partnerPlatform"></select>
+                        <input type="text" class="form-control" id="partnerHandle" maxlength="60" placeholder="帳號 / ID（選填）">
+                    </div>
+                    <input type="text" class="form-control mb-3" id="partnerCustomPlatform" maxlength="20" placeholder="平台名稱（例如：Threads）" hidden>
+
+                    <label for="partnerLevel" class="form-label">隊友等級</label>
+                    <input type="number" inputmode="numeric" min="1" class="form-control mb-3" id="partnerLevel" required>
+
+                    <label for="bondStaminaPerGame" class="form-label">每場體力（選填）</label>
+                    <input type="number" inputmode="numeric" min="1" class="form-control" id="bondStaminaPerGame">
+                    <div class="form-text mb-3">不填就用設定裡的預設值。</div>
+
+                    <label for="bondNote" class="form-label">備註（選填）</label>
+                    <input type="text" class="form-control" id="bondNote" maxlength="100">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">儲存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal：修改次數 -->
+    <div class="modal fade" id="countsModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <form class="modal-content" id="countsForm" novalidate>
+                <div class="modal-header">
+                    <h5 class="modal-title" id="countsModalTitle">修改次數</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
+                </div>
+                <div class="modal-body">
+                    <label for="countsCycle" class="form-label">本輪已達成次數（0–19）</label>
+                    <input type="number" inputmode="numeric" min="0" max="19" class="form-control mb-3" id="countsCycle" required>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="countsToday">
+                        <label class="form-check-label" for="countsToday">今天已達成</label>
+                    </div>
+                    <label for="countsGames" class="form-label">羈絆條目前已打幾場</label>
+                    <input type="number" inputmode="numeric" min="0" class="form-control mb-3" id="countsGames" required>
+                    <label for="countsLimit" class="form-label">跑滿需要幾場</label>
+                    <input type="number" inputmode="numeric" min="1" class="form-control" id="countsLimit">
+                    <div class="form-text" id="countsLimitHint"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">儲存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal：打完一場 (一次記錄多位隊友) -->
+    <div class="modal fade" id="playedModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <form class="modal-content" id="playedForm">
+                <div class="modal-header">
+                    <h5 class="modal-title">打完一場：這場有誰？</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="playedList" class="list-group"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">各 ＋1 場</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAjpfcNC4ZniqIxYzgYwp5Cs_8gbbmflVY",
+            authDomain: "ms-toolbox-web.firebaseapp.com",
+            projectId: "ms-toolbox-web",
+            storageBucket: "ms-toolbox-web.firebasestorage.app",
+            messagingSenderId: "777818785736",
+            appId: "1:777818785736:web:880b878f4a510132dfe2fd",
+            measurementId: "G-7KV0FSL1RG"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        window.firebaseAuth = getAuth(app);
+        window.db = getFirestore(app);
+        window.envAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        Object.assign(window, { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, doc, getDoc, runTransaction });
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="bond.js" defer></script>
+    <script src="script.js" defer></script>
+</body>
+</html>
