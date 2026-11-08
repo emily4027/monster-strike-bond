@@ -881,13 +881,31 @@ document.addEventListener('DOMContentLoaded', () => {
     function progressPairsFor(ref) {
         const pairs = data.accounts
             .filter((a) => !(ref.type === 'account' && a.id === ref.id))
-            .map((a) => ({ accId: a.id, ref, label: a.name, group: '自己的帳號' }));
+            .map((a) => (ref.type === 'account'
+                // 自己兩個帳號之間：紀錄可能在任一邊的隊伍裡，用實際有紀錄的那一邊
+                ? pickSide({ accId: a.id, ref }, { accId: ref.id, ref: { type: 'account', id: a.id } })
+                : { accId: a.id, ref })
+            ).map((p) => ({ ...p, label: (data.accounts.find((a) => a.id === (p.accId === ref.id ? p.ref.id : p.accId)) || {}).name, group: '自己的帳號' }));
         if (ref.type === 'account') {
             for (const p of data.roster) {
                 pairs.push({ accId: ref.id, ref: { type: 'player', id: p.id }, label: p.name, group: '其他玩家' });
             }
         }
         return pairs;
+    }
+
+    // 兩邊都可能有紀錄時：隊伍中的優先，其次今天羈完 / 最近結束的那筆；都沒有就記在第一邊
+    function pickSide(...sides) {
+        const t = today();
+        const score = (side) => {
+            const acc = data.accounts.find((a) => a.id === side.accId);
+            const found = acc && L.findPair(acc, side.ref);
+            if (!found) return [0, ''];
+            if (found.active) return [3, ''];
+            return [found.entry.lastCompletedDate === t ? 2 : 1, String(found.entry.endedAt || '')];
+        };
+        return sides.map((s) => ({ s, k: score(s) }))
+            .reduce((best, x) => (x.k[0] > best.k[0] || (x.k[0] === best.k[0] && x.k[1] > best.k[1]) ? x : best)).s;
     }
 
     function openProgressModal(ref) {
