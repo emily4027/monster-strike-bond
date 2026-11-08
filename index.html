@@ -37,8 +37,8 @@
             <div class="today-label mt-2">今天（台灣時間）：<span id="todayLabel"></span></div>
         </header>
 
-        <!-- 全部帳號今日總覽 -->
-        <section id="allOverview" class="section-card all-overview mb-3" hidden></section>
+        <!-- 隊友名單 -->
+        <section id="rosterSection" class="section-card mb-3"></section>
 
         <!-- 帳號切換 -->
         <nav class="account-tabs" id="accountTabs" aria-label="帳號"></nav>
@@ -113,57 +113,49 @@
         </div>
     </div>
 
-    <!-- Modal：隊友 -->
-    <div class="modal fade" id="bondModal" tabindex="-1" aria-hidden="true">
+    <!-- Modal：從名單選隊友 -->
+    <div class="modal fade" id="pickModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-            <form class="modal-content" id="bondForm" novalidate>
+            <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="bondModalTitle">新增隊友</h5>
+                    <h5 class="modal-title">從名單選隊友</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
                 </div>
                 <div class="modal-body">
-                    <div id="restoreSection" class="restore-section mb-3">
-                        <button type="button" class="btn btn-outline-primary btn-sm w-100" id="restoreToggle">
-                            <i class="bi bi-clock-history"></i> 從歷史紀錄找回（接續之前的次數）
-                        </button>
-                        <div id="restoreList" class="list-group mt-2" hidden></div>
+                    <div id="pickList" class="list-group"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-primary me-auto" id="pickNewPlayer"><i class="bi bi-person-plus"></i> 名單裡沒有？新增玩家</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal：名單玩家 -->
+    <div class="modal fade" id="playerModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <form class="modal-content" id="playerForm" novalidate>
+                <div class="modal-header">
+                    <h5 class="modal-title" id="playerModalTitle">新增玩家到名單</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
+                </div>
+                <div class="modal-body">
+                    <label for="partnerName" class="form-label">遊戲名稱</label>
+                    <input type="text" class="form-control mb-3" id="partnerName" maxlength="40">
+
+                    <label class="form-label" for="partnerPlatform">社群帳號</label>
+                    <div class="input-group mb-2">
+                        <select class="form-select social-select" id="partnerPlatform"></select>
+                        <input type="text" class="form-control" id="partnerHandle" maxlength="60" placeholder="帳號 / ID（選填）">
                     </div>
-                    <div class="form-label">隊友是</div>
-                    <div class="btn-group w-100 mb-3" role="radiogroup" aria-label="隊友類型">
-                        <input type="radio" class="btn-check" name="partnerType" id="partnerTypeOther" checked>
-                        <label class="btn btn-outline-primary" for="partnerTypeOther">🌐 其他玩家</label>
-                        <input type="radio" class="btn-check" name="partnerType" id="partnerTypeOwn">
-                        <label class="btn btn-outline-primary" for="partnerTypeOwn">👤 自己的帳號</label>
-                    </div>
+                    <input type="text" class="form-control mb-3" id="partnerCustomPlatform" maxlength="20" placeholder="平台名稱（例如：Threads）" hidden>
 
-                    <div id="ownAccountFields" hidden>
-                        <label for="partnerAccount" class="form-label">選擇自己的帳號</label>
-                        <select class="form-select mb-1" id="partnerAccount"></select>
-                        <div class="form-text mb-3">名稱和等級會跟著那個帳號自動更新。</div>
-                    </div>
-                    <div class="form-text mb-3" id="ownAccountHint">要選自己的帳號，請先新增另一個帳號。</div>
+                    <label for="partnerLevel" class="form-label">等級</label>
+                    <input type="number" inputmode="numeric" min="1" class="form-control mb-3" id="partnerLevel">
 
-                    <div id="otherPlayerFields">
-                        <label for="partnerName" class="form-label">隊友遊戲名稱</label>
-                        <input type="text" class="form-control mb-3" id="partnerName" maxlength="40">
-
-                        <label class="form-label" for="partnerPlatform">社群帳號</label>
-                        <div class="input-group mb-2">
-                            <select class="form-select social-select" id="partnerPlatform"></select>
-                            <input type="text" class="form-control" id="partnerHandle" maxlength="60" placeholder="帳號 / ID（選填）">
-                        </div>
-                        <input type="text" class="form-control mb-3" id="partnerCustomPlatform" maxlength="20" placeholder="平台名稱（例如：Threads）" hidden>
-
-                        <label for="partnerLevel" class="form-label">隊友等級</label>
-                        <input type="number" inputmode="numeric" min="1" class="form-control mb-3" id="partnerLevel">
-                    </div>
-
-                    <label for="bondStaminaPerGame" class="form-label">每場體力（選填）</label>
-                    <input type="number" inputmode="numeric" min="1" class="form-control" id="bondStaminaPerGame">
-                    <div class="form-text mb-3">不填就用設定裡的預設值。</div>
-
-                    <label for="bondNote" class="form-label">備註（選填）</label>
-                    <input type="text" class="form-control" id="bondNote" maxlength="100">
+                    <label for="playerNote" class="form-label">備註（選填）</label>
+                    <input type="text" class="form-control" id="playerNote" maxlength="100">
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
@@ -192,7 +184,10 @@
                     <input type="number" inputmode="numeric" min="0" class="form-control mb-3" id="countsGames" required>
                     <label for="countsLimit" class="form-label">跑滿需要幾場</label>
                     <input type="number" inputmode="numeric" min="1" class="form-control" id="countsLimit">
-                    <div class="form-text" id="countsLimitHint"></div>
+                    <div class="form-text mb-3" id="countsLimitHint"></div>
+                    <label for="countsSpg" class="form-label">每場體力（這段羈絆）</label>
+                    <input type="number" inputmode="numeric" min="1" class="form-control" id="countsSpg">
+                    <div class="form-text">留空 = 用設定裡的預設值。</div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>

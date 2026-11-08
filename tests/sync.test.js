@@ -67,3 +67,11 @@ test('sanitizeData：不合法的值改回預設', () => {
     assert.equal(d.accounts[0].bonds[0].cycleCount, 0);
     assert.equal(d.accounts[0].bonds[0].partnerSocial.platform, '其他');
 });
+
+test('隊友名單也以 id 為單位合併', () => {
+    const b = L.sanitizeData({ roster: [{ id: 'p1', name: '小明', level: 1400, createdAt: 1 }], accounts: [] });
+    const local = clone(b); local.roster[0].level = 1450;
+    const remote = clone(b); remote.roster.push({ id: 'p2', name: '小華', level: 1000, social: { platform: 'LINE', customPlatform: '', handle: '' }, note: '', createdAt: 2 });
+    const { data } = L.mergeData(b, local, remote);
+    assert.deepEqual(data.roster.map((p) => [p.id, p.level]), [['p1', 1450], ['p2', 1000]]);
+});

@@ -192,6 +192,60 @@ test('隊友是自己的帳號：名稱、等級跟著那個帳號；帳號刪�
     n.data.accounts.splice(1, 1);
     b = L.normalizeData(n.data).data.accounts[0].bonds[0];
     assert.equal(b.partnerAccountId, null);
+    assert.ok(b.partnerPlayerId, "改成名單裡的其他玩家");
     assert.equal(b.partnerGameName, '副帳改名');
     assert.equal(b.gamesPlayed, 4, "進度保留");
+});
+
+test('隊友名單：舊資料轉換，同名同社群帳號合併成一筆，id 固定', () => {
+    const oldBond = (id, name, handle, extra = {}) => ({ id, partnerGameName: name, partnerSocial: { platform: 'LINE', handle }, partnerLevel: 1400, createdAt: 1, ...extra });
+    const raw = {
+        accounts: [
+            { id: 'a1', name: '主帳', level: 1500, bonds: [oldBond('b1', '小明', 'ming', { note: '週末才上線' })], history: [] },
+            { id: 'a2', name: '副帳', level: 1500, bonds: [oldBond('b2', '小明', 'ming')], history: [oldBond('h1', '阿強', '', { endedAt: '2026-11-01' })] },
+        ],
+    };
+    const first = L.normalizeData(L.sanitizeData(raw)).data;
+    const second = L.normalizeData(L.sanitizeData(raw)).data;
+    assert.deepEqual(first.roster.map((p) => p.name).sort(), ['小明', '阿強']);
+    assert.deepEqual(first.roster.map((p) => p.id), second.roster.map((p) => p.id), '兩台裝置各自轉換得到同一個 id');
+    const ming = first.roster.find((p) => p.name === '小明');
+    assert.equal(ming.note, '週末才上線');
+    assert.equal(first.accounts[0].bonds[0].partnerPlayerId, ming.id);
+    assert.equal(first.accounts[1].bonds[0].partnerPlayerId, ming.id);
+});
+
+test('隊友名單：改名單裡的等級，所有羈絆一起更新', () => {
+    let d = L.sanitizeData({ roster: [{ id: 'p1', name: '小明', level: 1490, createdAt: 1 }], accounts: [
+        { id: 'a1', name: '主帳', level: 1500, bonds: [{ id: 'b1', partnerPlayerId: 'p1', createdAt: 1 }] },
+        { id: 'a2', name: '副帳', level: 1200, bonds: [{ id: 'b2', partnerPlayerId: 'p1', createdAt: 1 }] },
+    ] });
+    d = L.normalizeData(d).data;
+    assert.equal(d.accounts[0].bonds[0].partnerGameName, '小明');
+    d.roster[0].level = 1300;
+    d = L.normalizeData(d).data;
+    assert.equal(d.accounts[0].bonds[0].partnerLevel, 1300);
+    assert.equal(d.accounts[1].bonds[0].partnerLevel, 1300);
+});
+
+test('從名單選隊友：上限 3 位、不能重複、以前羈絆過就接續', () => {
+    let acc = { ...L.makeAccount({ name: '主帳', level: 1500 }, 1), id: 'a1' };
+    let r = L.selectPartner(acc, { type: 'player', id: 'p1' }, TODAY, 1);
+    assert.equal(r.resumedFrom, null);
+    acc = r.account;
+    assert.equal(L.selectPartner(acc, { type: 'player', id: 'p1' }, TODAY).error, 'duplicate');
+    assert.equal(L.selectPartner(acc, { type: 'account', id: 'a1' }, TODAY).error, 'self');
+
+    // 結束後再選回來 → 接續
+    const b = { ...acc.bonds[0], cycleCount: 7 };
+    acc = { ...acc, bonds: [], history: [L.endBond(b, '2026-11-01')] };
+    r = L.selectPartner(acc, { type: 'player', id: 'p1' }, TODAY, 2);
+    assert.equal(r.resumedFrom.cycleCount, 7);
+    assert.equal(r.account.bonds[0].cycleCount, 7);
+    assert.equal(r.account.history.length, 0);
+
+    acc = r.account;
+    acc = L.selectPartner(acc, { type: 'player', id: 'p2' }, TODAY).account;
+    acc = L.selectPartner(acc, { type: 'account', id: 'a2' }, TODAY).account;
+    assert.equal(L.selectPartner(acc, { type: 'player', id: 'p3' }, TODAY).error, 'full');
 });

@@ -272,13 +272,55 @@
         return { id: newId('acc_'), name, level, createdAt: now, bonds: [], history: [] };
     }
 
-    function makeBond({ partnerGameName, partnerSocial, partnerLevel, staminaPerGame, note, partnerAccountId }, today, now = Date.now()) {
+    // 隊友名單裡的其他玩家
+    function makePlayer({ name, social, level, note }, now = Date.now()) {
+        return { id: newId('p_'), name, social: social || { platform: 'LINE', customPlatform: '', handle: '' }, level, note: note || '', createdAt: now };
+    }
+
+    // 舊資料轉換用：同名同社群帳號 → 同一個固定 id (兩台裝置各自轉換也會得到同一筆)
+    function legacyPlayerId(name, social) {
+        const s = [name, social && social.platform, social && social.customPlatform, social && social.handle].map((x) => x || '').join('|');
+        let h = 5381;
+        for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+        return 'p_legacy_' + h.toString(36);
+    }
+
+    // 隊友是誰：{ type: 'account' | 'player', id }
+    const partnerRefOf = (b) => (b.partnerAccountId ? { type: 'account', id: b.partnerAccountId }
+        : b.partnerPlayerId ? { type: 'player', id: b.partnerPlayerId } : null);
+    const sameRef = (b, ref) => {
+        const r = partnerRefOf(b);
+        return !!r && !!ref && r.type === ref.type && r.id === ref.id;
+    };
+
+    // 帳號從名單選一位隊友：以前羈絆過就從歷史接續 (最近結束的那筆)，否則從 0 開始
+    // 名稱、等級等顯示用的值由 normalizeData 補上
+    function selectPartner(account, ref, today, now = Date.now()) {
+        const acc = JSON.parse(JSON.stringify(account));
+        if (acc.bonds.length >= MAX_BONDS_PER_ACCOUNT) return { account, error: 'full' };
+        if (acc.bonds.some((b) => sameRef(b, ref))) return { account, error: 'duplicate' };
+        if (ref.type === 'account' && ref.id === acc.id) return { account, error: 'self' };
+        const past = acc.history.filter((h) => sameRef(h, ref))
+            .sort((x, y) => String(y.endedAt).localeCompare(String(x.endedAt)))[0];
+        let bond;
+        if (past) {
+            bond = restoreBond(past, now);
+            acc.history = acc.history.filter((h) => h.id !== past.id);
+        } else {
+            bond = makeBond(ref.type === 'account' ? { partnerAccountId: ref.id } : { partnerPlayerId: ref.id }, today, now);
+        }
+        acc.bonds.push(bond);
+        return { account: acc, bond, resumedFrom: past || null };
+    }
+
+    function makeBond({ partnerGameName, partnerSocial, partnerLevel, staminaPerGame, note, partnerAccountId, partnerPlayerId }, today, now = Date.now()) {
         return {
             id: newId('bond_'),
-            partnerAccountId: partnerAccountId || null,   // 隊友是自己的另一個帳號時，記帳號 id
-            partnerGameName,
-            partnerSocial: partnerSocial || { platform: 'LINE', handle: '' },
-            partnerLevel,
+            partnerAccountId: partnerAccountId || null,   // 隊友是自己的另一個帳號
+            partnerPlayerId: partnerPlayerId || null,     // 隊友是名單裡的其他玩家
+            partnerGameName: partnerGameName || '',
+            partnerSocial: partnerSocial || { platform: '其他', customPlatform: '', handle: '' },
+            partnerLevel: partnerLevel || LEVEL_MIN,
             staminaPerGame: Number.isInteger(staminaPerGame) ? staminaPerGame : null,
             cycleCount: 0,
             totalCycles: 0,
@@ -313,18 +355,36 @@
     const intOr = (v, min, max, fallback) => (Number.isInteger(v) && v >= min && v <= max ? v : fallback);
     const dateOr = (v) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
 
+    const idOrNull = (v) => (typeof v === 'string' && v ? v : null);
+    function sanitizeSocial(raw) {
+        const social = isObj(raw) ? raw : {};
+        return {
+            platform: SOCIAL_PLATFORMS.includes(social.platform) ? social.platform : '其他',
+            customPlatform: str(social.customPlatform, 30),
+            handle: str(social.handle),
+        };
+    }
+
+    function sanitizePlayer(raw) {
+        if (!isObj(raw) || typeof raw.id !== 'string' || !raw.id) return null;
+        return {
+            id: raw.id,
+            name: str(raw.name) || '未命名',
+            social: sanitizeSocial(raw.social),
+            level: intOr(raw.level, LEVEL_MIN, LEVEL_MAX, LEVEL_MIN),
+            note: str(raw.note, 300),
+            createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : 0,
+        };
+    }
+
     function sanitizeBond(raw) {
         if (!isObj(raw) || typeof raw.id !== 'string' || !raw.id) return null;
-        const social = isObj(raw.partnerSocial) ? raw.partnerSocial : {};
         const b = {
             id: raw.id,
-            partnerAccountId: typeof raw.partnerAccountId === 'string' && raw.partnerAccountId ? raw.partnerAccountId : null,
+            partnerAccountId: idOrNull(raw.partnerAccountId),
+            partnerPlayerId: idOrNull(raw.partnerPlayerId),
             partnerGameName: str(raw.partnerGameName),
-            partnerSocial: {
-                platform: SOCIAL_PLATFORMS.includes(social.platform) ? social.platform : '其他',
-                customPlatform: str(social.customPlatform, 30),
-                handle: str(social.handle),
-            },
+            partnerSocial: sanitizeSocial(raw.partnerSocial),
             partnerLevel: intOr(raw.partnerLevel, LEVEL_MIN, LEVEL_MAX, LEVEL_MIN),
             staminaPerGame: intOr(raw.staminaPerGame, 1, STAMINA_PER_GAME_MAX, null),
             cycleCount: intOr(raw.cycleCount, 0, CYCLE_LENGTH - 1, 0),
@@ -357,31 +417,57 @@
     }
 
     function emptyData() {
-        return { settings: { staminaPerGame: DEFAULT_STAMINA_PER_GAME }, accounts: [] };
+        return { settings: { staminaPerGame: DEFAULT_STAMINA_PER_GAME }, roster: [], accounts: [] };
     }
 
     function sanitizeData(raw) {
         const data = emptyData();
         if (!isObj(raw)) return data;
         if (isObj(raw.settings)) data.settings.staminaPerGame = intOr(raw.settings.staminaPerGame, 1, STAMINA_PER_GAME_MAX, DEFAULT_STAMINA_PER_GAME);
+        data.roster = (Array.isArray(raw.roster) ? raw.roster : []).map(sanitizePlayer).filter(Boolean);
         data.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).map(sanitizeAccount).filter(Boolean);
         return data;
     }
 
-    // 每次修改後整理資料：
-    //   1. 隊友是自己的帳號 → 名稱、等級跟著那個帳號 (存一份最新值；那個帳號被刪除時改成一般隊友並保留這份值)
-    //   2. 等級差跨格或每場體力改變 → 清掉失效的修正場數
+    // 每次修改後 (以及載入時) 整理資料：
+    //   1. 隊友是自己的帳號 → 名稱、等級跟著那個帳號；那個帳號被刪除 → 改成名單裡的其他玩家，保留最後的值
+    //   2. 隊友是名單裡的玩家 → 名稱、社群帳號、等級跟著名單
+    //   3. 舊版資料 (隊友資料直接存在羈絆裡) → 移到名單，同名同社群帳號合併成一筆
+    //   4. 等級差跨格或每場體力改變 → 清掉失效的修正場數
     // 回傳新資料與清掉幾段的修正值
     function normalizeData(data) {
         const d = JSON.parse(JSON.stringify(data));
+        if (!Array.isArray(d.roster)) d.roster = [];
         const byId = new Map(d.accounts.map((a) => [a.id, a]));
+        const players = new Map(d.roster.map((p) => [p.id, p]));
         let cleared = 0;
+        const toRosterPlayer = (b) => {
+            const id = legacyPlayerId(b.partnerGameName, b.partnerSocial);
+            if (!players.has(id)) {
+                const p = { id, name: b.partnerGameName || '未命名', social: { ...b.partnerSocial }, level: b.partnerLevel || LEVEL_MIN, note: b.note || '', createdAt: b.createdAt || 0 };
+                players.set(id, p);
+                d.roster.push(p);
+            }
+            b.partnerAccountId = null;
+            b.partnerPlayerId = id;
+        };
         const fix = (acc, b, reconcile) => {
             if (b.partnerAccountId) {
                 const target = byId.get(b.partnerAccountId);
-                if (!target || target.id === acc.id) b.partnerAccountId = null;
-                else { b.partnerGameName = target.name; b.partnerLevel = target.level; }
-            }
+                if (target && target.id !== acc.id) {
+                    b.partnerPlayerId = null;
+                    b.partnerGameName = target.name;
+                    b.partnerLevel = target.level;
+                } else toRosterPlayer(b);
+            } else if (b.partnerPlayerId) {
+                const p = players.get(b.partnerPlayerId);
+                if (p) {
+                    b.partnerGameName = p.name;
+                    b.partnerLevel = p.level;
+                    b.partnerSocial = { ...p.social };
+                } else if (reconcile) toRosterPlayer(b);   // 進行中的羈絆不能沒有隊友
+                else b.partnerPlayerId = null;            // 歷史紀錄：玩家已從名單刪除，保留名稱就好
+            } else if (reconcile || b.partnerGameName) toRosterPlayer(b);
             if (!reconcile) return b;
             const r = reconcileOverride(b, acc.level, d.settings);
             if (r.cleared) cleared++;
@@ -415,6 +501,7 @@
     // 巢狀資料 → 以 id 為單位的扁平紀錄 (設定 / 帳號 / 羈絆 / 歷史各自一筆)
     function flatten(data) {
         const out = [{ key: 'settings', value: data.settings }];
+        (data.roster || []).forEach((p) => out.push({ key: 'p:' + p.id, value: p }));
         data.accounts.forEach((a) => {
             const { bonds, history, ...acc } = a;
             out.push({ key: 'a:' + a.id, value: acc });
@@ -430,6 +517,7 @@
         const accounts = new Map();
         records.filter((r) => r.key.startsWith('a:')).map((r) => r.value).sort(byCreated)
             .forEach((a) => accounts.set(a.id, { ...a, bonds: [], history: [] }));
+        data.roster = records.filter((r) => r.key.startsWith('p:')).map((r) => r.value).sort(byCreated);
         records.forEach(({ key, value }) => {
             if (key === 'settings') data.settings = value;
             const list = key.startsWith('b:') ? 'bonds' : key.startsWith('h:') ? 'history' : null;
@@ -483,7 +571,7 @@
         isOverrideValid, gameLimit, isCompletedToday, todayStatus,
         rewardFor, nextCompletionNumber, ticketInfo,
         addGame, removeGame, markFull, notFullYet, canUndoCompletion, reconcileOverride, setCounts,
-        makeAccount, makeBond, endBond, restoreBond,
+        makeAccount, makeBond, makePlayer, endBond, restoreBond, legacyPlayerId, partnerRefOf, sameRef, selectPartner,
         emptyData, sanitizeData, normalizeData,
         cloudStampOf, sameStamp, stableStringify, mergeData, sameData, countChanges,
     };
