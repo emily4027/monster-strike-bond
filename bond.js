@@ -302,6 +302,7 @@
         if (ref.type === 'account' && ref.id === acc.id) return { account, error: 'self' };
         const past = acc.history.filter((h) => sameRef(h, ref))
             .sort((x, y) => String(y.endedAt).localeCompare(String(x.endedAt)))[0];
+        if (past && past.lastCompletedDate === today) return { account, error: 'doneToday' };   // 一天只能羈完一次
         let bond;
         if (past) {
             bond = restoreBond(past, now);
@@ -346,6 +347,18 @@
         delete b.endedAt;
         b.createdAt = now;
         return b;
+    }
+
+    // 「還沒滿」：今天羈完而退出的隊友放回隊伍，並撤銷這次達成 (上限 +1)
+    function undoDoneToday(account, entryId, settings, today, now = Date.now()) {
+        const acc = JSON.parse(JSON.stringify(account));
+        const entry = acc.history.find((e) => e.id === entryId);
+        if (!entry || !canUndoCompletion(entry, today)) return { account, error: 'notUndoable' };
+        if (acc.bonds.length >= MAX_BONDS_PER_ACCOUNT) return { account, error: 'full' };
+        const r = notFullYet(restoreBond(entry, now), acc.level, settings, today);
+        acc.history = acc.history.filter((e) => e.id !== entryId);
+        acc.bonds.push(r.bond);
+        return { account: acc, bond: r.bond, newLimit: r.newLimit };
     }
 
     // ---------------- 資料格式整理 ----------------
@@ -435,7 +448,8 @@
     //   3. 舊版資料 (隊友資料直接存在羈絆裡) → 移到名單，同名同社群帳號合併成一筆
     //   4. 等級差跨格或每場體力改變 → 清掉失效的修正場數
     // 回傳新資料與清掉幾段的修正值
-    function normalizeData(data) {
+    // today 有給的話：今天已羈完的隊友自動退出隊伍 (移到歷史，保留進度與「還沒滿」需要的資料)，空出位子給其他隊友
+    function normalizeData(data, today = null) {
         const d = JSON.parse(JSON.stringify(data));
         if (!Array.isArray(d.roster)) d.roster = [];
         const byId = new Map(d.accounts.map((a) => [a.id, a]));
@@ -476,6 +490,13 @@
         d.accounts.forEach((acc) => {
             acc.bonds = acc.bonds.map((b) => fix(acc, b, true));
             acc.history = acc.history.map((b) => fix(acc, b, false));
+            if (today) {
+                const done = acc.bonds.filter((b) => b.lastCompletedDate === today);
+                if (done.length) {
+                    acc.bonds = acc.bonds.filter((b) => b.lastCompletedDate !== today);
+                    acc.history.unshift(...done.map((b) => ({ ...b, endedAt: today })));
+                }
+            }
         });
         return { data: d, cleared };
     }
@@ -571,7 +592,7 @@
         isOverrideValid, gameLimit, isCompletedToday, todayStatus,
         rewardFor, nextCompletionNumber, ticketInfo,
         addGame, removeGame, markFull, notFullYet, canUndoCompletion, reconcileOverride, setCounts,
-        makeAccount, makeBond, makePlayer, endBond, restoreBond, legacyPlayerId, partnerRefOf, sameRef, selectPartner,
+        makeAccount, makeBond, makePlayer, endBond, restoreBond, legacyPlayerId, partnerRefOf, sameRef, selectPartner, undoDoneToday,
         emptyData, sanitizeData, normalizeData,
         cloudStampOf, sameStamp, stableStringify, mergeData, sameData, countChanges,
     };

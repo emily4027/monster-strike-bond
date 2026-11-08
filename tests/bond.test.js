@@ -249,3 +249,41 @@ test('從名單選隊友：上限 3 位、不能重複、以前羈絆過就接�
     acc = L.selectPartner(acc, { type: 'account', id: 'a2' }, TODAY).account;
     assert.equal(L.selectPartner(acc, { type: 'player', id: 'p3' }, TODAY).error, 'full');
 });
+
+test('羈完自動退出隊伍、空出位子；同一天不能再選回；還沒滿放回隊伍', () => {
+    let acc = { ...L.makeAccount({ name: '主帳', level: 1500 }, 1), id: 'a1' };
+    for (const id of ['p1', 'p2', 'p3']) acc = L.selectPartner(acc, { type: 'player', id }, TODAY).account;
+    acc.bonds = acc.bonds.map((b) => ({ ...b, partnerLevel: 1200 }));   // 等級差 300 → 2 場
+    // p1 打兩場羈完
+    let b = acc.bonds[0];
+    b = L.addGame(b, 1500, settings, TODAY).bond;
+    b = L.addGame(b, 1500, settings, TODAY).bond;
+    acc.bonds[0] = b;
+    const roster = ["p1","p2","p3","p4"].map((id) => ({ id, name: id, social: { platform: "LINE", customPlatform: "", handle: "" }, level: 1200, note: "", createdAt: 1 }));
+    let d = L.normalizeData({ settings, roster, accounts: [acc] }, TODAY).data;
+    acc = d.accounts[0];
+    assert.equal(acc.bonds.length, 2, '羈完的退出');
+    assert.equal(acc.history[0].cycleCount, 1);
+    assert.equal(acc.history[0].endedAt, TODAY);
+
+    // 空出的位子可以選別人；今天羈完的不能再選回
+    assert.equal(L.selectPartner(acc, { type: 'player', id: 'p1' }, TODAY).error, 'doneToday');
+    acc = L.selectPartner(acc, { type: 'player', id: 'p4' }, TODAY).account;
+    assert.equal(acc.bonds.length, 3);
+
+    // 還沒滿：隊伍滿了就不能放回
+    assert.equal(L.undoDoneToday(acc, acc.history[0].id, settings, TODAY).error, 'full');
+    acc.bonds.pop();
+    const u = L.undoDoneToday(acc, acc.history[0].id, settings, TODAY);
+    assert.equal(u.newLimit, 3);
+    assert.equal(u.account.bonds.length, 3);
+    const back = u.account.bonds.find((x) => x.partnerPlayerId === 'p1');
+    assert.equal(back.cycleCount, 0);
+    assert.equal(back.gamesPlayed, 2);
+
+    // 隔天可以再選回，次數接續
+    const next = L.normalizeData({ settings, roster, accounts: [acc] }, '2026-11-09').data.accounts[0];
+    const r = L.selectPartner(next, { type: 'player', id: 'p1' }, '2026-11-09');
+    assert.equal(r.error, undefined);
+    assert.equal(r.bond.cycleCount, 1, '隔天選回，接續第 1 次');
+});

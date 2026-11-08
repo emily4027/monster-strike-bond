@@ -99,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function loadLocal() {
         const raw = store.get(LOCAL_DATA_KEY);
         if (raw) {
-            try { data = L.normalizeData(L.sanitizeData(JSON.parse(raw))).data; }
+            try { data = L.normalizeData(L.sanitizeData(JSON.parse(raw)), today()).data; }
             catch (e) {
                 console.warn('本機資料格式損毀，已另存備份', e);
                 store.set(LOCAL_DATA_KEY + '_corrupt_backup', raw);
@@ -132,7 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 改完後統一整理：自己帳號隊友的名稱 / 等級跟著更新、失效的修正場數清掉 (bond.js normalizeData)
     function commit(mutate) {
         mutate();
-        const n = L.normalizeData(data);
+        const n = L.normalizeData(data, today());
         data = n.data;
         saveData();
         render();
@@ -187,7 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let merge = null;
                 if (!L.sameStamp(current, knownCloudStamp)) {
                     merge = L.mergeData(base, localSnapshot, L.sanitizeData(remoteRaw));
-                    written = L.normalizeData(merge.data).data;
+                    written = L.normalizeData(merge.data, today()).data;
                 }
                 const version = current.version + 1;
                 tx.set(ref, { settings: written.settings, roster: written.roster, accounts: written.accounts, version, lastUpdated: new Date(stamp) }, { merge: true });
@@ -199,7 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
             writeSyncBase(uid, result.written);
             if (result.merge) {
                 // 套用合併結果，同時保留存檔期間又做的修改
-                data = L.normalizeData(L.mergeData(localSnapshot, data, result.written).data).data;
+                data = L.normalizeData(L.mergeData(localSnapshot, data, result.written).data, today()).data;
                 saveLocal();
                 render();
                 showToast('雲端資料已被其他裝置更新，已自動合併兩邊的修改。' +
@@ -241,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     data = L.mergeData(oldBase, unsyncedLocal, cloudData).data;
                 }
                 // 舊版雲端資料 (沒有隊友名單) 在這裡轉換；和雲端不同就會在下面存回去
-                data = L.normalizeData(data).data;
+                data = L.normalizeData(data, today()).data;
                 saveLocal();
                 fixCurrentAccount();
                 render();
@@ -374,13 +374,22 @@ document.addEventListener('DOMContentLoaded', () => {
         renderAccount();
     }
 
-    // 某位隊友 (自己的帳號 / 名單玩家) 和我各帳號的羈絆狀態
-    function partnerBonds(ref) {
+    // 某位隊友 (自己的帳號 / 名單玩家) 和我各帳號的羈絆狀態：隊伍中的，加上今天已羈完而退出的
+    //   acc = 對方是哪個帳號 (點了會切過去)；ownSide = 自己的帳號那一列也算進「它自己去羈絆其他自己帳號」的部分
+    function partnerBonds(ref, { ownSide = false } = {}) {
         const t = today();
         const out = [];
-        data.accounts.forEach((acc) => acc.bonds.forEach((b) => {
+        const doneToday = (acc) => acc.history.filter((e) => e.lastCompletedDate === t);
+        data.accounts.forEach((acc) => [...acc.bonds, ...doneToday(acc)].forEach((b) => {
             if (L.sameRef(b, ref)) out.push({ acc, b, s: L.todayStatus(b, acc.level, data.settings, t) });
         }));
+        if (ownSide && ref.type === 'account') {
+            const self = data.accounts.find((a) => a.id === ref.id);
+            if (self) [...self.bonds, ...doneToday(self)].forEach((b) => {
+                const other = b.partnerAccountId && data.accounts.find((a) => a.id === b.partnerAccountId);
+                if (other) out.push({ acc: other, b, s: L.todayStatus(b, self.level, data.settings, t), from: self });
+            });
+        }
         return out;
     }
 
@@ -388,11 +397,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderRoster() {
         const box = $('rosterSection');
         const statusChips = (ref) => {
-            const list = partnerBonds(ref);
+            const list = partnerBonds(ref, { ownSide: true });
             if (list.length === 0) return [h('span', { class: 'roster-chip idle', text: '未羈絆' })];
-            return list.map(({ acc, s }) => h('button', {
-                type: 'button', class: 'roster-chip' + (s.completedToday ? ' done' : ''), title: `切換到 ${acc.name}`,
-                onclick: () => selectAccount(acc.id),
+            // 點了切到羈絆所在的帳號 (自己帳號那一列的「它自己去羈絆的」在 from 帳號底下)
+            return list.map(({ acc, s, from }) => h('button', {
+                type: 'button', class: 'roster-chip' + (s.completedToday ? ' done' : ''), title: `切換到 ${(from || acc).name}`,
+                onclick: () => selectAccount((from || acc).id),
             }, s.completedToday ? `${acc.name} ✅ 已羈完` : `${acc.name}：還差 ${s.remainingGames} 場`));
         };
         const row = (label, meta, ref, actions) => h('li', { class: 'roster-row' },
@@ -409,9 +419,12 @@ document.addEventListener('DOMContentLoaded', () => {
             [h('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary icon-btn', title: '編輯', 'aria-label': `編輯 ${p.name}`, onclick: () => openPlayerModal(p.id) }, icon('bi-pencil')),
                 h('button', { type: 'button', class: 'btn btn-sm btn-outline-danger icon-btn', title: '從名單刪除', 'aria-label': `刪除 ${p.name}`, onclick: () => deletePlayer(p.id) }, icon('bi-trash'))]));
 
-        const pendingTotal = data.accounts.reduce((n, acc) => n + acc.bonds.filter((b) => !L.isCompletedToday(b, today())).length, 0);
-        const bondTotal = data.accounts.reduce((n, acc) => n + acc.bonds.length, 0);
-        const summary = bondTotal === 0 ? '' : pendingTotal === 0 ? '🎉 今天全部羈完了' : `今天還有 ${pendingTotal} 段沒羈完`;
+        // 隊伍裡的都是還沒羈完的 (羈完會自動退出)
+        const pendingTotal = data.accounts.reduce((n, acc) => n + acc.bonds.length, 0);
+        const doneTotal = data.accounts.reduce((n, acc) => n + acc.history.filter((e) => e.lastCompletedDate === today()).length, 0);
+        const summary = pendingTotal === 0
+            ? (doneTotal ? `🎉 今天已羈完 ${doneTotal} 段，隊伍都空出來了` : '')
+            : `今天還有 ${pendingTotal} 段沒羈完` + (doneTotal ? `・已羈完 ${doneTotal} 段` : '');
 
         box.replaceChildren(h('div', {},
             h('div', { class: 'roster-head' },
@@ -465,13 +478,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 h('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary', onclick: () => openAccountModal(acc.id) }, icon('bi-pencil'), ' 改名'),
                 h('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', onclick: () => deleteAccount(acc.id) }, icon('bi-trash'), ' 刪除帳號')));
 
+        // 羈完的隊友會自動退出隊伍，所以隊伍裡都是今天還沒羈完的
+        const doneToday = acc.history.filter((e) => e.lastCompletedDate === t);
         let overview;
-        if (acc.bonds.length === 0) overview = null;
-        else if (pending.length === 0) {
-            overview = h('div', { class: 'overview' }, h('span', { class: 'overview-title' }, '🎉 今天 ', String(acc.bonds.length), ' 段羈絆都達成了'));
+        if (pending.length === 0) {
+            overview = doneToday.length ? h('div', { class: 'overview' }, h('span', { class: 'overview-title', text: `🎉 今天已羈完 ${doneToday.length} 位，可以再從名單選其他隊友` })) : null;
         } else {
             overview = h('div', { class: 'overview' },
-                h('span', { class: 'overview-title', text: `今天還有 ${pending.length} 段沒達成` }),
+                h('span', { class: 'overview-title', text: `今天還有 ${pending.length} 位沒羈完` + (doneToday.length ? `（已羈完 ${doneToday.length} 位）` : '') }),
                 ...pending.map(({ bond, s }) => h('span', { class: 'overview-item', text: `${partnerLabel(bond)}：還差 ${s.remainingGames} 場` })),
                 h('button', { type: 'button', class: 'btn btn-accent btn-sm', onclick: () => openPlayedModal() }, icon('bi-controller'), ' 打完一場…'));
         }
@@ -492,6 +506,7 @@ document.addEventListener('DOMContentLoaded', () => {
             head, overview,
             h('h3', { class: 'section-title' }, icon('bi-people-fill'), ` 羈絆隊友（${acc.bonds.length} / ${L.MAX_BONDS_PER_ACCOUNT}）`),
             bondsArea,
+            doneTodaySection(acc, doneToday),
             historySection(acc)));
     }
 
@@ -570,12 +585,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 h('button', { type: 'button', class: 'btn btn-sm btn-link text-secondary', style: 'min-height:auto', onclick: () => openCountsModal(bond.id) }, icon('bi-sliders'), ' 修改次數 / 設定')));
     }
 
+    // 今天已羈完 (已退出隊伍) 的隊友：顯示這次拿到的獎勵，按錯可以放回隊伍
+    function doneTodaySection(acc, doneToday) {
+        if (doneToday.length === 0) return null;
+        const t = today();
+        return h('div', { class: 'mt-4' },
+            h('h3', { class: 'section-title' }, icon('bi-check2-circle'), ` 今天已羈完（${doneToday.length}）`),
+            h('ul', { class: 'list-group' }, doneToday.map((e) => {
+                const number = e.cycleCount === 0 ? L.CYCLE_LENGTH : e.cycleCount;
+                const reward = L.rewardFor(number);
+                return h('li', { class: 'list-group-item history-item done-item' },
+                    h('strong', { text: '✅ ' + partnerLabel(e) }),
+                    h('span', { class: 'meta', text: `第 ${number} 次：${reward.name}` }),
+                    h('span', { class: 'actions' },
+                        L.canUndoCompletion(e, t)
+                            ? h('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary', onclick: () => undoCompletion(acc.id, e.id) }, '還沒滿？放回隊伍')
+                            : null));
+            })));
+    }
+
     function historySection(acc) {
-        if (acc.history.length === 0) return null;
+        const t = today();
+        const older = acc.history.filter((e) => e.lastCompletedDate !== t);
+        if (older.length === 0) return null;
         return h('details', { class: 'mt-4' },
-            h('summary', { class: 'fw-bold' }, `歷史紀錄（${acc.history.length}）`),
+            h('summary', { class: 'fw-bold' }, `歷史紀錄（${older.length}）`),
             h('div', { class: 'form-text', text: '從名單再選回同一位隊友時，會自動接續之前的次數。' }),
-            h('ul', { class: 'list-group mt-2' }, acc.history.map((e) => h('li', { class: 'list-group-item history-item' },
+            h('ul', { class: 'list-group mt-2' }, older.map((e) => h('li', { class: 'list-group-item history-item' },
                 h('strong', { text: partnerLabel(e) }),
                 e.partnerAccountId ? null : h('span', { class: 'meta', text: socialLabel(e.partnerSocial) }),
                 h('span', { class: 'meta', text: `第 ${e.cycleCount} / ${L.CYCLE_LENGTH} 次・${e.totalCycles} 輪・${e.startedAt || '?'} ～ ${e.endedAt}` }),
@@ -639,14 +675,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // 「還沒滿」：羈完的隊友已經退出隊伍 (在歷史裡)，放回隊伍並撤銷這次
     function undoCompletion(accId, bondId) {
         withAccount(accId, (acc) => {
-            const b = findBond(acc, bondId);
-            if (!b) return;
-            let r;
-            commit(() => { r = L.notFullYet(b, acc.level, data.settings, today()); if (r.undone) replaceBond(acc, r.bond); });
-            if (r.undone) showToast(`已撤銷，${b.partnerGameName} 之後跑滿上限改成 ${r.newLimit} 場`, 'info');
-            else showToast('已經換日，無法撤銷，請用「修改次數」調整', 'error');
+            const e = acc.history.find((x) => x.id === bondId);
+            if (!e) return;
+            const r = L.undoDoneToday(acc, bondId, data.settings, today());
+            if (r.error === 'full') { showToast('隊伍已滿 3 位，請先結束一位再放回', 'error'); return; }
+            if (r.error) { showToast('已經換日，無法撤銷，請用「修改次數」調整', 'error'); return; }
+            commit(() => { data.accounts = data.accounts.map((a) => (a.id === accId ? r.account : a)); });
+            showToast(`已放回隊伍，${e.partnerGameName} 之後跑滿上限改成 ${r.newLimit} 場`, 'info');
         });
     }
 
@@ -752,14 +790,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const items = candidates.map(({ ref, label, meta }) => {
             const taken = acc.bonds.some((b) => L.sameRef(b, ref));
             const past = acc.history.filter((e) => L.sameRef(e, ref)).sort((x, y) => String(y.endedAt).localeCompare(String(x.endedAt)))[0];
+            const doneToday = !taken && past && past.lastCompletedDate === today();
             const others = partnerBonds(ref).filter((x) => x.acc.id !== acc.id).map((x) => x.acc.name);
             return h('button', {
-                type: 'button', class: 'list-group-item list-group-item-action pick-item', disabled: taken,
+                type: 'button', class: 'list-group-item list-group-item-action pick-item', disabled: taken || doneToday,
                 onclick: () => { modal('pickModal').hide(); pickPartner(acc.id, ref); },
             },
             h('div', { class: 'd-flex justify-content-between gap-2' }, h('strong', { text: label }), h('span', { class: 'text-muted small', text: meta })),
-            taken ? h('div', { class: 'small text-muted', text: '已經是這個帳號的隊友' }) : null,
-            !taken && past ? h('div', { class: 'small text-primary', text: `以前羈絆到第 ${past.cycleCount} 次，選了會接續` }) : null,
+            taken ? h('div', { class: 'small text-muted', text: '已經在這個帳號的隊伍裡' }) : null,
+            doneToday ? h('div', { class: 'small text-success', text: '✅ 今天已羈完，明天再選' }) : null,
+            !taken && !doneToday && past ? h('div', { class: 'small text-primary', text: `以前羈絆到第 ${past.cycleCount} 次，選了會接續` }) : null,
             others.length ? h('div', { class: 'small text-muted', text: `也和 ${others.join('、')} 羈絆中` }) : null);
         });
         $('pickList').replaceChildren(...(items.length ? items
@@ -771,7 +811,7 @@ document.addEventListener('DOMContentLoaded', () => {
         withAccount(accId, (acc) => {
             const r = L.selectPartner(acc, ref, today());
             if (r.error) {
-                showToast({ full: '一個帳號最多 3 位隊友', duplicate: '已經是這個帳號的隊友', self: '不能選自己' }[r.error], 'error');
+                showToast({ full: '一個帳號最多 3 位隊友', duplicate: '已經在這個帳號的隊伍裡', self: '不能選自己', doneToday: '今天已經羈完了，明天再選' }[r.error], 'error');
                 return;
             }
             commit(() => { data.accounts = data.accounts.map((a) => (a.id === accId ? r.account : a)); });
@@ -940,7 +980,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!parsed || !Array.isArray(parsed.accounts)) throw new Error('格式不符');
             const next = L.sanitizeData(parsed);
             if (!confirm(`載入備份會取代目前的資料（${next.accounts.length} 個帳號）。確定嗎？`)) return;
-            commit(() => { data = L.normalizeData(next).data; fixCurrentAccount(); });
+            commit(() => { data = L.normalizeData(next, today()).data; fixCurrentAccount(); });
             showToast('已載入備份');
         } catch (e) {
             console.error(e);
