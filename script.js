@@ -1110,6 +1110,55 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ---------------- Modal：打完一場 ----------------
+    // 這場有誰：勾目前帳號隊伍裡的隊友。勾到兩個以上自己的帳號時，它們彼此之間也是同一場 (例如羽入和梨花、沙都子一起打 → 梨花×沙都子也算)
+    function ownPairsInGame(acc, bondIds) {
+        const t = today();
+        const own = bondIds.map((id) => findBond(acc, id)).filter((b) => b && b.partnerAccountId)
+            .map((b) => data.accounts.find((a) => a.id === b.partnerAccountId)).filter(Boolean);
+        const pairs = [];
+        for (let i = 0; i < own.length; i++) {
+            for (let j = i + 1; j < own.length; j++) {
+                const x = own[i], y = own[j];
+                const active = x.bonds.find((b) => b.partnerAccountId === y.id);
+                const found = L.findPair(x, { type: 'account', id: y.id });
+                let state;
+                if (active) state = L.isCompletedToday(active, t) ? 'done' : 'active';
+                else if (found && found.entry.lastCompletedDate === t) state = 'done';
+                else state = x.bonds.length < L.MAX_BONDS_PER_ACCOUNT && y.bonds.length < L.MAX_BONDS_PER_ACCOUNT ? 'addable' : 'full';
+                pairs.push({ x, y, state, bond: active || null });
+            }
+        }
+        return pairs;
+    }
+
+    function renderPlayedPairs() {
+        const acc = currentAccount();
+        if (!acc) return;
+        const ids = [...$('playedList').querySelectorAll('input:checked')].map((i) => i.value);
+        const pairs = ownPairsInGame(acc, ids);
+        const prevChecked = new Set([...$('playedPairs').querySelectorAll('input:checked')].map((i) => i.value));
+        const prevSeen = new Set([...$('playedPairs').querySelectorAll('input')].map((i) => i.value));
+        if (pairs.length === 0) { $('playedPairs').replaceChildren(); return; }
+        const t = today();
+        $('playedPairs').replaceChildren(
+            h('div', { class: 'played-pairs-title', text: '同一場的自己帳號之間' }),
+            h('div', { class: 'list-group' }, pairs.map(({ x, y, state, bond }) => {
+                const key = x.id + '|' + y.id;
+                const name = `👤 ${x.name} × 👤 ${y.name}`;
+                if (state === 'done' || state === 'full') {
+                    return h('div', { class: 'list-group-item d-flex align-items-center gap-2 text-muted' },
+                        h('span', { class: 'flex-grow-1', text: name }),
+                        h('span', { class: 'small', text: state === 'done' ? '✅ 今天已羈完' : '隊伍已滿 3 位，沒辦法加入' }));
+                }
+                const checked = prevSeen.has(key) ? prevChecked.has(key) : state === 'active';
+                const s = bond ? L.todayStatus(bond, x.level, data.settings, t) : null;
+                return h('label', { class: 'list-group-item d-flex align-items-center gap-2' },
+                    h('input', { type: 'checkbox', class: 'form-check-input m-0', value: key, checked }),
+                    h('span', { class: 'flex-grow-1', text: name }),
+                    h('span', { class: 'text-muted small', text: s ? `${s.played} / ${s.limit} 場` : '還沒在隊伍，勾選會加進兩邊隊伍' }));
+            })));
+    }
+
     function openPlayedModal() {
         const acc = currentAccount();
         if (!acc) return;
@@ -1123,15 +1172,57 @@ document.addEventListener('DOMContentLoaded', () => {
                 h('span', { class: 'flex-grow-1', text: partnerLabel(b) }),
                 h('span', { class: 'text-muted small', text: `${s.played} / ${s.limit} 場` }));
         }));
+        $('playedPairs').replaceChildren();
+        renderPlayedPairs();
         modal('playedModal').show();
     }
+
+    $('playedList').addEventListener('change', renderPlayedPairs);
 
     $('playedForm').addEventListener('submit', (ev) => {
         ev.preventDefault();
         const acc = currentAccount();
         const ids = [...$('playedList').querySelectorAll('input:checked')].map((i) => i.value);
+        const pairKeys = [...$('playedPairs').querySelectorAll('input:checked')].map((i) => i.value);
         modal('playedModal').hide();
-        if (acc && ids.length > 0) plusGame(acc.id, ids);
+        if (!acc || ids.length === 0) return;
+        const t = today();
+        const done = [];
+        let added = 0;
+        const play = (a, b) => {
+            const r = L.addGame(b, a.level, data.settings, t);
+            if (r.blocked) return;
+            replaceBond(a, r.bond);
+            if (r.completion) done.push({ acc: a, bond: r.bond, completion: r.completion });
+            added++;
+        };
+        commit(() => {
+            ids.forEach((id) => { const b = findBond(acc, id); if (b) play(acc, b); });
+            pairKeys.forEach((key) => {
+                const [xId, yId] = key.split('|');
+                let x = data.accounts.find((a) => a.id === xId);
+                if (!x || !data.accounts.some((a) => a.id === yId)) return;
+                let b = x.bonds.find((e) => e.partnerAccountId === yId);
+                if (!b) {
+                    // 還沒在隊伍：加進兩邊隊伍 (另一邊由 commit 同步)，以前羈絆過就接續
+                    if (!L.ownPairHasRoom(data, yId, xId)) return;
+                    const r = L.selectPartner(x, { type: 'account', id: yId }, t);
+                    if (r.error) return;
+                    data.accounts = data.accounts.map((a) => (a.id === xId ? r.account : a));
+                    x = r.account;
+                    // 新建的羈絆還沒帶入對方的名稱 / 等級 (平常是存檔整理時才補)，這裡要先補，場數上限才會對
+                    const y = data.accounts.find((a) => a.id === yId);
+                    b = { ...r.bond, partnerGameName: y.name, partnerLevel: y.level };
+                    replaceBond(x, b);
+                }
+                play(x, b);
+            });
+        });
+        if (done.length === 1) reportCompletion(done[0].acc, done[0].bond, done[0].completion);
+        else if (done.length > 1) {
+            showToast(done.map((d) => `${d.bond.partnerGameName} 第 ${d.completion.number} 次：${d.completion.reward.name}`).join('；') +
+                '（還沒滿的話，到卡片上按「還沒滿」）', 'reward');
+        } else if (added > 1) showToast(`已記錄 ${added} 段羈絆各 ＋1 場`);
     });
 
     // ---------------- 設定與備份 ----------------
