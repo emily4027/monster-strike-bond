@@ -383,11 +383,11 @@ document.addEventListener('DOMContentLoaded', () => {
         data.accounts.forEach((acc) => [...acc.bonds, ...doneToday(acc)].forEach((b) => {
             if (L.sameRef(b, ref)) out.push({ acc, b, s: L.todayStatus(b, acc.level, data.settings, t) });
         }));
+        // 自己的帳號那一列：再加上它自己的隊伍 (自己的其他帳號、其他玩家都算)
         if (ownSide && ref.type === 'account') {
             const self = data.accounts.find((a) => a.id === ref.id);
             if (self) [...self.bonds, ...doneToday(self)].forEach((b) => {
-                const other = b.partnerAccountId && data.accounts.find((a) => a.id === b.partnerAccountId);
-                if (other) out.push({ acc: other, b, s: L.todayStatus(b, self.level, data.settings, t), from: self });
+                out.push({ label: b.partnerGameName, b, s: L.todayStatus(b, self.level, data.settings, t), from: self });
             });
         }
         return out;
@@ -400,23 +400,32 @@ document.addEventListener('DOMContentLoaded', () => {
             const list = partnerBonds(ref, { ownSide: true });
             if (list.length === 0) return [h('span', { class: 'roster-chip idle', text: '未羈絆' })];
             // 點了切到羈絆所在的帳號 (自己帳號那一列的「它自己去羈絆的」在 from 帳號底下)
-            return list.map(({ acc, s, from }) => h('button', {
-                type: 'button', class: 'roster-chip' + (s.completedToday ? ' done' : ''), title: `切換到 ${(from || acc).name}`,
-                onclick: () => selectAccount((from || acc).id),
-            }, s.completedToday ? `${acc.name} ✅ 已羈完` : `${acc.name}：還差 ${s.remainingGames} 場`));
+            return list.map(({ acc, label, s, from }) => {
+                const name = label || acc.name;
+                const target = from || acc;
+                return h('button', {
+                    type: 'button', class: 'roster-chip' + (s.completedToday ? ' done' : ''), title: `切換到 ${target.name}`,
+                    onclick: () => selectAccount(target.id),
+                }, s.completedToday ? `${name} ✅ 已羈完` : `${name}：還差 ${s.remainingGames} 場`);
+            });
         };
+        const progressBtn = (ref, name) => h('button', {
+            type: 'button', class: 'btn btn-sm btn-outline-primary icon-btn', title: '調整進度', 'aria-label': `調整和 ${name} 的進度`,
+            onclick: () => openProgressModal(ref),
+        }, icon('bi-sliders'));
         const row = (label, meta, ref, actions) => h('li', { class: 'roster-row' },
             h('div', { class: 'roster-who' }, h('strong', { text: label }), meta ? h('span', { class: 'roster-meta', text: meta }) : null),
             h('div', { class: 'roster-status' }, statusChips(ref)),
-            actions ? h('div', { class: 'roster-actions' }, actions) : null);
+            h('div', { class: 'roster-actions' }, actions));
 
         const own = data.accounts.length >= 2
-            ? data.accounts.map((a) => row('👤 ' + a.name, `等級 ${a.level}`, { type: 'account', id: a.id }, null))
+            ? data.accounts.map((a) => row('👤 ' + a.name, `等級 ${a.level}`, { type: 'account', id: a.id }, [progressBtn({ type: 'account', id: a.id }, a.name)]))
             : [];
         const players = data.roster.map((p) => row('🌐 ' + p.name,
             [`等級 ${p.level}`, p.social.handle || p.social.platform !== '其他' || p.social.customPlatform ? socialLabel(p.social) : '', p.note].filter(Boolean).join('・'),
             { type: 'player', id: p.id },
-            [h('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary icon-btn', title: '編輯', 'aria-label': `編輯 ${p.name}`, onclick: () => openPlayerModal(p.id) }, icon('bi-pencil')),
+            [progressBtn({ type: 'player', id: p.id }, p.name),
+                h('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary icon-btn', title: '編輯', 'aria-label': `編輯 ${p.name}`, onclick: () => openPlayerModal(p.id) }, icon('bi-pencil')),
                 h('button', { type: 'button', class: 'btn btn-sm btn-outline-danger icon-btn', title: '從名單刪除', 'aria-label': `刪除 ${p.name}`, onclick: () => deletePlayer(p.id) }, icon('bi-trash'))]));
 
         // 隊伍裡的都是還沒羈完的 (羈完會自動退出)
@@ -823,6 +832,74 @@ document.addEventListener('DOMContentLoaded', () => {
     $('pickNewPlayer').addEventListener('click', () => {
         modal('pickModal').hide();
         openPlayerModal(null, currentAccountId);
+    });
+
+    // ---------------- Modal：調整和某位隊友的進度 ----------------
+    let progressRef = null;
+
+    function openProgressModal(ref) {
+        progressRef = ref;
+        const t = today();
+        const name = ref.type === 'account'
+            ? (data.accounts.find((a) => a.id === ref.id) || {}).name
+            : (data.roster.find((p) => p.id === ref.id) || {}).name;
+        $('progressModalTitle').textContent = `和 ${name} 的羈絆進度`;
+        const accounts = data.accounts.filter((a) => !(ref.type === 'account' && a.id === ref.id));
+        $('progressRows').replaceChildren(...(accounts.length ? accounts.map((acc) => {
+            const found = L.findPair(acc, ref);
+            const e = found && found.entry;
+            let status;
+            if (!found) status = '還沒有紀錄';
+            else if (found.active) {
+                const s = L.todayStatus(e, acc.level, data.settings, t);
+                status = `隊伍中・羈絆條 ${s.played} / ${s.limit} 場`;
+            } else if (e.lastCompletedDate === t) status = '今天已羈完';
+            else status = '不在隊伍';
+            const num = (cls, min, max, value, label) => h('input', {
+                type: 'number', inputmode: 'numeric', min, max, class: 'form-control form-control-sm ' + cls,
+                value: value, placeholder: '0', 'aria-label': `${acc.name} ${label}`,
+            });
+            return h('div', { class: 'progress-row', 'data-acc': acc.id },
+                h('div', { class: 'progress-who' }, h('strong', { text: acc.name }), h('span', { class: 'roster-meta', text: status })),
+                h('label', { class: 'inline-field' }, '本輪已達成', num('p-cycle', 0, L.CYCLE_LENGTH - 1, e ? e.cycleCount : '', '本輪已達成次數'), `/ ${L.CYCLE_LENGTH} 次`),
+                h('label', { class: 'inline-field' }, '已完成', num('p-rounds', 0, 9999, e ? e.totalCycles : '', '已完成輪數'), '輪'),
+                h('label', { class: 'form-check-label d-inline-flex align-items-center gap-1' },
+                    h('input', { type: 'checkbox', class: 'form-check-input m-0 p-today', checked: !!(e && e.lastCompletedDate === t) }), '今天已羈完'));
+        }) : [h('p', { class: 'text-muted small', text: '需要先有其他帳號。' })]));
+        modal('progressModal').show();
+    }
+
+    $('progressForm').addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        const ref = progressRef;
+        const t = today();
+        const changes = [];
+        for (const row of $('progressRows').querySelectorAll('.progress-row')) {
+            const acc = data.accounts.find((a) => a.id === row.dataset.acc);
+            if (!acc) continue;
+            const cycleRaw = row.querySelector('.p-cycle').value.trim();
+            const roundsRaw = row.querySelector('.p-rounds').value.trim();
+            const cycleCount = cycleRaw === '' ? 0 : L.parseIntInRange(cycleRaw, 0, L.CYCLE_LENGTH - 1);
+            const totalCycles = roundsRaw === '' ? 0 : L.parseIntInRange(roundsRaw, 0, 9999);
+            const completedToday = row.querySelector('.p-today').checked;
+            if (cycleCount === null) { showToast(`${acc.name}：次數請輸入 0–${L.CYCLE_LENGTH - 1}`, 'error'); return; }
+            if (totalCycles === null) { showToast(`${acc.name}：輪數請輸入 0 以上的整數`, 'error'); return; }
+            const found = L.findPair(acc, ref);
+            const e = found && found.entry;
+            const same = e
+                ? e.cycleCount === cycleCount && e.totalCycles === totalCycles && (e.lastCompletedDate === t) === completedToday
+                : cycleCount === 0 && totalCycles === 0 && !completedToday;   // 沒紀錄又全空：不建立
+            if (!same) changes.push({ accId: acc.id, values: { cycleCount, totalCycles, completedToday } });
+        }
+        modal('progressModal').hide();
+        if (changes.length === 0) return;
+        commit(() => {
+            data.accounts = data.accounts.map((a) => {
+                const c = changes.find((x) => x.accId === a.id);
+                return c ? L.setPairProgress(a, ref, c.values, t) : a;
+            });
+        });
+        showToast(`已更新 ${changes.length} 個帳號的進度`);
     });
 
     // ---------------- Modal：名單玩家 ----------------

@@ -287,3 +287,22 @@ test('羈完自動退出隊伍、空出位子；同一天不能再選回；還�
     assert.equal(r.error, undefined);
     assert.equal(r.bond.cycleCount, 1, '隔天選回，接續第 1 次');
 });
+
+test('不用拉進隊伍也能調整進度，之後選進隊伍會接續', () => {
+    let acc = { ...L.makeAccount({ name: '主帳', level: 1500 }, 1), id: 'a1' };
+    const ref = { type: 'player', id: 'p1' };
+    assert.equal(L.findPair(acc, ref), null);
+    acc = L.setPairProgress(acc, ref, { cycleCount: 12, totalCycles: 2, completedToday: false }, TODAY);
+    assert.equal(acc.bonds.length, 0, '沒有拉進隊伍');
+    assert.equal(L.findPair(acc, ref).entry.cycleCount, 12);
+    const r = L.selectPartner(acc, ref, TODAY);
+    assert.equal(r.resumedFrom.cycleCount, 12);
+    assert.equal(r.bond.totalCycles, 2);
+
+    // 隊伍中的也可以改；勾今天已羈完 → 下次整理時退出隊伍
+    acc = L.setPairProgress(r.account, ref, { cycleCount: 13, totalCycles: 2, completedToday: true }, TODAY);
+    assert.equal(acc.bonds[0].cycleCount, 13);
+    const d = L.normalizeData({ settings, roster: [{ id: 'p1', name: 'P', social: { platform: 'LINE', customPlatform: '', handle: '' }, level: 1400, note: '', createdAt: 1 }], accounts: [acc] }, TODAY).data;
+    assert.equal(d.accounts[0].bonds.length, 0);
+    assert.equal(L.selectPartner(d.accounts[0], ref, TODAY).error, 'doneToday');
+});

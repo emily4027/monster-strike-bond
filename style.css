@@ -136,6 +136,13 @@ body {
 .roster-chip.done { background: var(--done-light); color: var(--done); }
 .roster-chip.idle { background: #eee; color: #888; }
 .pick-item:disabled { opacity: 0.6; }
+.progress-rows { display: flex; flex-direction: column; gap: 10px; }
+.progress-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px;
+    padding: 10px; border-radius: 10px; background: #fafafa;
+}
+.progress-who { display: flex; flex-direction: column; flex: 1 1 100%; }
+.progress-row input[type="number"] { width: 72px; }
 .own-badge { background: #ede7f6; color: #4527a0; border-radius: 6px; padding: 1px 6px; font-size: 0.8rem; }
 
 /* --- 羈絆卡片 --- */

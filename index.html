@@ -132,6 +132,26 @@
         </div>
     </div>
 
+    <!-- Modal：調整和某位隊友的進度 (不用拉進隊伍) -->
+    <div class="modal fade" id="progressModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <form class="modal-content" id="progressForm" novalidate>
+                <div class="modal-header">
+                    <h5 class="modal-title" id="progressModalTitle">調整進度</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="form-text mt-0">直接填遊戲裡目前的次數。不在隊伍裡也可以改，之後選進隊伍會從這裡接續。</p>
+                    <div id="progressRows" class="progress-rows"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">儲存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Modal：名單玩家 -->
     <div class="modal fade" id="playerModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">

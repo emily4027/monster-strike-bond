@@ -361,6 +361,33 @@
         return { account: acc, bond: r.bond, newLimit: r.newLimit };
     }
 
+    // 某個帳號和某位隊友的進度紀錄：隊伍中的那筆，否則歷史裡最近的那筆，都沒有就是 null
+    function findPair(account, ref) {
+        const active = account.bonds.find((b) => sameRef(b, ref));
+        if (active) return { entry: active, active: true };
+        const past = account.history.filter((h) => sameRef(h, ref))
+            .sort((x, y) => String(y.endedAt).localeCompare(String(x.endedAt)))[0];
+        return past ? { entry: past, active: false } : null;
+    }
+
+    // 不用拉進隊伍也能調整進度：改隊伍中 / 歷史裡的那筆；都沒有就在歷史建立一筆 (之後選進隊伍會接續)
+    function setPairProgress(account, ref, { cycleCount, totalCycles, completedToday }, today, now = Date.now()) {
+        const acc = JSON.parse(JSON.stringify(account));
+        const found = findPair(acc, ref);
+        let entry;
+        if (found) entry = found.entry;
+        else {
+            entry = { ...makeBond(ref.type === 'account' ? { partnerAccountId: ref.id } : { partnerPlayerId: ref.id }, today, now), endedAt: today };
+            acc.history.unshift(entry);
+        }
+        entry.cycleCount = cycleCount;
+        entry.totalCycles = totalCycles;
+        if (completedToday) entry.lastCompletedDate = today;
+        else if (entry.lastCompletedDate === today) entry.lastCompletedDate = null;
+        delete entry.lastCompletion;
+        return acc;
+    }
+
     // ---------------- 資料格式整理 ----------------
 
     const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
@@ -592,7 +619,7 @@
         isOverrideValid, gameLimit, isCompletedToday, todayStatus,
         rewardFor, nextCompletionNumber, ticketInfo,
         addGame, removeGame, markFull, notFullYet, canUndoCompletion, reconcileOverride, setCounts,
-        makeAccount, makeBond, makePlayer, endBond, restoreBond, legacyPlayerId, partnerRefOf, sameRef, selectPartner, undoDoneToday,
+        makeAccount, makeBond, makePlayer, endBond, restoreBond, legacyPlayerId, partnerRefOf, sameRef, selectPartner, undoDoneToday, findPair, setPairProgress,
         emptyData, sanitizeData, normalizeData,
         cloudStampOf, sameStamp, stableStringify, mergeData, sameData, countChanges,
     };
