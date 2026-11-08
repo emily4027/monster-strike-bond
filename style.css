@@ -115,6 +115,15 @@ body {
 .overview-item { background: white; border-radius: 999px; padding: 2px 12px; font-size: 0.9rem; }
 .overview .btn { margin-left: auto; }
 
+/* --- 全部帳號今日總覽 --- */
+.all-overview-rows { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.all-overview-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.all-overview-row .account-link { color: var(--accent-dark); min-width: 4em; text-align: left; }
+.all-overview .overview-item { background: var(--accent-light); }
+.all-overview .overview-item.own, .overview-item.own { background: #ede7f6; }
+.all-overview .overview-item.done { background: var(--done-light); color: var(--done); }
+.own-badge { background: #ede7f6; color: #4527a0; border-radius: 6px; padding: 1px 6px; font-size: 0.8rem; }
+
 /* --- 羈絆卡片 --- */
 .bond-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
 .bond-card {

@@ -37,6 +37,9 @@
             <div class="today-label mt-2">今天（台灣時間）：<span id="todayLabel"></span></div>
         </header>
 
+        <!-- 全部帳號今日總覽 -->
+        <section id="allOverview" class="section-card all-overview mb-3" hidden></section>
+
         <!-- 帳號切換 -->
         <nav class="account-tabs" id="accountTabs" aria-label="帳號"></nav>
 
@@ -125,18 +128,35 @@
                         </button>
                         <div id="restoreList" class="list-group mt-2" hidden></div>
                     </div>
-                    <label for="partnerName" class="form-label">隊友遊戲名稱</label>
-                    <input type="text" class="form-control mb-3" id="partnerName" maxlength="40" required>
-
-                    <label class="form-label" for="partnerPlatform">社群帳號</label>
-                    <div class="input-group mb-2">
-                        <select class="form-select social-select" id="partnerPlatform"></select>
-                        <input type="text" class="form-control" id="partnerHandle" maxlength="60" placeholder="帳號 / ID（選填）">
+                    <div class="form-label">隊友是</div>
+                    <div class="btn-group w-100 mb-3" role="radiogroup" aria-label="隊友類型">
+                        <input type="radio" class="btn-check" name="partnerType" id="partnerTypeOther" checked>
+                        <label class="btn btn-outline-primary" for="partnerTypeOther">🌐 其他玩家</label>
+                        <input type="radio" class="btn-check" name="partnerType" id="partnerTypeOwn">
+                        <label class="btn btn-outline-primary" for="partnerTypeOwn">👤 自己的帳號</label>
                     </div>
-                    <input type="text" class="form-control mb-3" id="partnerCustomPlatform" maxlength="20" placeholder="平台名稱（例如：Threads）" hidden>
 
-                    <label for="partnerLevel" class="form-label">隊友等級</label>
-                    <input type="number" inputmode="numeric" min="1" class="form-control mb-3" id="partnerLevel" required>
+                    <div id="ownAccountFields" hidden>
+                        <label for="partnerAccount" class="form-label">選擇自己的帳號</label>
+                        <select class="form-select mb-1" id="partnerAccount"></select>
+                        <div class="form-text mb-3">名稱和等級會跟著那個帳號自動更新。</div>
+                    </div>
+                    <div class="form-text mb-3" id="ownAccountHint">要選自己的帳號，請先新增另一個帳號。</div>
+
+                    <div id="otherPlayerFields">
+                        <label for="partnerName" class="form-label">隊友遊戲名稱</label>
+                        <input type="text" class="form-control mb-3" id="partnerName" maxlength="40">
+
+                        <label class="form-label" for="partnerPlatform">社群帳號</label>
+                        <div class="input-group mb-2">
+                            <select class="form-select social-select" id="partnerPlatform"></select>
+                            <input type="text" class="form-control" id="partnerHandle" maxlength="60" placeholder="帳號 / ID（選填）">
+                        </div>
+                        <input type="text" class="form-control mb-3" id="partnerCustomPlatform" maxlength="20" placeholder="平台名稱（例如：Threads）" hidden>
+
+                        <label for="partnerLevel" class="form-label">隊友等級</label>
+                        <input type="number" inputmode="numeric" min="1" class="form-control mb-3" id="partnerLevel">
+                    </div>
 
                     <label for="bondStaminaPerGame" class="form-label">每場體力（選填）</label>
                     <input type="number" inputmode="numeric" min="1" class="form-control" id="bondStaminaPerGame">

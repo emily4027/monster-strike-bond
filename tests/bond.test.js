@@ -166,3 +166,32 @@ test('等級輸入驗證', () => {
     assert.equal(L.parseLevel('1500'), 1500);
     for (const bad of ['', '0', '-3', '1.5', 'abc', '10000']) assert.equal(L.parseLevel(bad), null, bad);
 });
+
+test('隊友是自己的帳號：名稱、等級跟著那個帳號；帳號刪除後改成一般隊友', () => {
+    const main = { ...L.makeAccount({ name: '主帳', level: 1500 }, 1), id: 'main' };
+    const sub = { ...L.makeAccount({ name: '副帳', level: 1490 }, 2), id: 'sub' };
+    main.bonds.push(L.makeBond({ partnerAccountId: 'sub', partnerGameName: '', partnerLevel: 1 }, TODAY, 1));
+    let { data } = L.normalizeData({ settings, accounts: [main, sub] });
+    let b = data.accounts[0].bonds[0];
+    assert.equal(b.partnerGameName, '副帳');
+    assert.equal(b.partnerLevel, 1490);
+    assert.equal(sub.bonds.length, 0, '各自獨立：副帳那邊不會自動出現');
+
+    // 副帳升級跨格 → 主帳這段的修正場數清掉
+    data.accounts[0].bonds[0] = L.notFullYet(L.addGame({ ...b, gamesPlayed: 3 }, 1500, settings, TODAY).bond, 1500, settings, TODAY).bond;
+    data.accounts[1].level = 1460;
+    data.accounts[1].name = '副帳改名';
+    const n = L.normalizeData(data);
+    assert.equal(n.cleared, 1);
+    b = n.data.accounts[0].bonds[0];
+    assert.equal(b.partnerGameName, '副帳改名');
+    assert.equal(b.partnerLevel, 1460);
+    assert.equal(b.gamesOverride, null);
+
+    // 刪除副帳 → 保留最後的名稱、等級和進度
+    n.data.accounts.splice(1, 1);
+    b = L.normalizeData(n.data).data.accounts[0].bonds[0];
+    assert.equal(b.partnerAccountId, null);
+    assert.equal(b.partnerGameName, '副帳改名');
+    assert.equal(b.gamesPlayed, 4, "進度保留");
+});

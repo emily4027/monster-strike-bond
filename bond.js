@@ -272,9 +272,10 @@
         return { id: newId('acc_'), name, level, createdAt: now, bonds: [], history: [] };
     }
 
-    function makeBond({ partnerGameName, partnerSocial, partnerLevel, staminaPerGame, note }, today, now = Date.now()) {
+    function makeBond({ partnerGameName, partnerSocial, partnerLevel, staminaPerGame, note, partnerAccountId }, today, now = Date.now()) {
         return {
             id: newId('bond_'),
+            partnerAccountId: partnerAccountId || null,   // 隊友是自己的另一個帳號時，記帳號 id
             partnerGameName,
             partnerSocial: partnerSocial || { platform: 'LINE', handle: '' },
             partnerLevel,
@@ -317,6 +318,7 @@
         const social = isObj(raw.partnerSocial) ? raw.partnerSocial : {};
         const b = {
             id: raw.id,
+            partnerAccountId: typeof raw.partnerAccountId === 'string' && raw.partnerAccountId ? raw.partnerAccountId : null,
             partnerGameName: str(raw.partnerGameName),
             partnerSocial: {
                 platform: SOCIAL_PLATFORMS.includes(social.platform) ? social.platform : '其他',
@@ -364,6 +366,32 @@
         if (isObj(raw.settings)) data.settings.staminaPerGame = intOr(raw.settings.staminaPerGame, 1, STAMINA_PER_GAME_MAX, DEFAULT_STAMINA_PER_GAME);
         data.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).map(sanitizeAccount).filter(Boolean);
         return data;
+    }
+
+    // 每次修改後整理資料：
+    //   1. 隊友是自己的帳號 → 名稱、等級跟著那個帳號 (存一份最新值；那個帳號被刪除時改成一般隊友並保留這份值)
+    //   2. 等級差跨格或每場體力改變 → 清掉失效的修正場數
+    // 回傳新資料與清掉幾段的修正值
+    function normalizeData(data) {
+        const d = JSON.parse(JSON.stringify(data));
+        const byId = new Map(d.accounts.map((a) => [a.id, a]));
+        let cleared = 0;
+        const fix = (acc, b, reconcile) => {
+            if (b.partnerAccountId) {
+                const target = byId.get(b.partnerAccountId);
+                if (!target || target.id === acc.id) b.partnerAccountId = null;
+                else { b.partnerGameName = target.name; b.partnerLevel = target.level; }
+            }
+            if (!reconcile) return b;
+            const r = reconcileOverride(b, acc.level, d.settings);
+            if (r.cleared) cleared++;
+            return r.bond;
+        };
+        d.accounts.forEach((acc) => {
+            acc.bonds = acc.bonds.map((b) => fix(acc, b, true));
+            acc.history = acc.history.map((b) => fix(acc, b, false));
+        });
+        return { data: d, cleared };
     }
 
     // ---------------- 雲端同步：版本比對與三方合併 ----------------
@@ -456,7 +484,7 @@
         rewardFor, nextCompletionNumber, ticketInfo,
         addGame, removeGame, markFull, notFullYet, canUndoCompletion, reconcileOverride, setCounts,
         makeAccount, makeBond, endBond, restoreBond,
-        emptyData, sanitizeData,
+        emptyData, sanitizeData, normalizeData,
         cloudStampOf, sameStamp, stableStringify, mergeData, sameData, countChanges,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

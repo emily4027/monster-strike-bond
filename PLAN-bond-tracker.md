@@ -18,7 +18,8 @@
 6. **結束羈絆**把完整進度移到歷史；「新增隊友」視窗和歷史紀錄都可以「找回」，接續之前的次數與上限。
 7. **刪除帳號**連同羈絆與歷史一起刪除，先確認；之後要加回來由使用者手動補。
 8. 社群平台：LINE / Discord / Facebook / Instagram / 其他（可自己輸入平台名稱）。工具箱卡片：🤝、`#ec407a`、`#fce4ec`。Repo：`monster-strike-bond`。
-9. Firestore 規則：請使用者到 Console 確認有涵蓋 `artifacts/{appId}/users/{uid}/bond_data/bond_tracker`。
+9. Firestore 規則：已確認，`artifacts/{appId}/users/{userId}/{document=**}` 有涵蓋。
+10. **（1.1.0）隊友可以是自己的帳號**：`partnerAccountId` 指向自己的另一個帳號，名稱與等級跟著那個帳號。帳號之間的羈絆**各自獨立**（只出現在新增的那一邊、進度各算各的）。被連結的帳號刪除時改成一般隊友並保留進度。最上方加「全部帳號今日總覽」（2 個帳號以上才顯示），各帳號底下的總覽保留。
 
 ---
 

@@ -129,10 +129,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 修改資料的唯一入口：改完存檔、重畫
+    // 改完後統一整理：自己帳號隊友的名稱 / 等級跟著更新、失效的修正場數清掉 (bond.js normalizeData)
     function commit(mutate) {
         mutate();
+        const n = L.normalizeData(data);
+        data = n.data;
         saveData();
         render();
+        if (n.cleared > 0) showToast(`等級差或每場體力變了，${n.cleared} 段羈絆的場數已重新估算`, 'info');
     }
 
     // ---------------- 雲端 ----------------
@@ -357,12 +361,36 @@ document.addEventListener('DOMContentLoaded', () => {
         return social.handle ? `${name}：${social.handle}` : name;
     }
 
+    const partnerLabel = (b) => (b.partnerAccountId ? '👤 ' : '') + b.partnerGameName;
+
     function render() {
         lastRenderedDate = today();
         $('todayLabel').textContent = lastRenderedDate;
         $('globalStaminaPerGame').value = data.settings.staminaPerGame;
+        renderAllOverview();
         renderTabs();
         renderAccount();
+    }
+
+    // 全部帳號今日總覽：2 個帳號以上才顯示 (只有 1 個帳號時和帳號底下的總覽重複)
+    function renderAllOverview() {
+        const box = $('allOverview');
+        const withBonds = data.accounts.filter((a) => a.bonds.length > 0);
+        box.hidden = data.accounts.length < 2 || withBonds.length === 0;
+        if (box.hidden) { box.replaceChildren(); return; }
+        const t = today();
+        const rows = withBonds.map((acc) => ({
+            acc,
+            pending: acc.bonds.map((b) => ({ b, s: L.todayStatus(b, acc.level, data.settings, t) })).filter((x) => !x.s.completedToday),
+        }));
+        const total = rows.reduce((n, r) => n + r.pending.length, 0);
+        box.replaceChildren(
+            h('h2', { class: 'section-title mt-0' }, icon('bi-list-check'), total === 0 ? ' 🎉 全部帳號今天都達成了' : ` 全部帳號今日總覽：還有 ${total} 段沒達成`),
+            total === 0 ? null : h('div', { class: 'all-overview-rows' }, rows.map(({ acc, pending }) => h('div', { class: 'all-overview-row' },
+                h('button', { type: 'button', class: 'btn btn-sm btn-link fw-bold p-0 account-link', onclick: () => selectAccount(acc.id) }, acc.name),
+                pending.length === 0
+                    ? h('span', { class: 'overview-item done', text: '✅ 全部達成' })
+                    : pending.map(({ b, s }) => h('span', { class: 'overview-item' + (b.partnerAccountId ? ' own' : ''), text: `${partnerLabel(b)}：還差 ${s.remainingGames} 場` }))))));
     }
 
     function renderTabs() {
@@ -412,7 +440,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             overview = h('div', { class: 'overview' },
                 h('span', { class: 'overview-title', text: `今天還有 ${pending.length} 段沒達成` }),
-                ...pending.map(({ bond, s }) => h('span', { class: 'overview-item', text: `${bond.partnerGameName}：還差 ${s.remainingGames} 場` })),
+                ...pending.map(({ bond, s }) => h('span', { class: 'overview-item', text: `${partnerLabel(bond)}：還差 ${s.remainingGames} 場` })),
                 h('button', { type: 'button', class: 'btn btn-accent btn-sm', onclick: () => openPlayedModal() }, icon('bi-controller'), ' 打完一場…'));
         }
 
@@ -442,6 +470,15 @@ document.addEventListener('DOMContentLoaded', () => {
             class: 'form-control form-control-sm', value: bond.partnerLevel, 'aria-label': `${bond.partnerGameName} 的等級`,
         });
         levelInput.addEventListener('change', () => changePartnerLevel(acc.id, bond.id, levelInput));
+        const linked = !!bond.partnerAccountId;
+        // 自己的帳號：等級跟著那個帳號，在這裡不能改；可以點名稱切到那個帳號
+        const levelField = linked
+            ? h('span', { text: `隊友等級 ${bond.partnerLevel}（跟著帳號）` })
+            : h('label', { class: 'inline-field' }, '隊友等級', levelInput);
+        const socialLine = linked
+            ? h('div', { class: 'bond-social' }, h('span', { class: 'own-badge', text: '👤 自己的帳號' }), ' ',
+                h('button', { type: 'button', class: 'btn btn-link btn-sm p-0 align-baseline', onclick: () => selectAccount(bond.partnerAccountId) }, '切換到這個帳號'))
+            : h('div', { class: 'bond-social' }, icon(PLATFORM_ICONS[bond.partnerSocial.platform] || PLATFORM_ICONS.其他), ' ', socialLabel(bond.partnerSocial));
 
         const needBox = s.completedToday
             ? h('div', { class: 'need-box done' }, h('div', { class: 'need-main' }, '✅ 今天已達成'),
@@ -480,13 +517,13 @@ document.addEventListener('DOMContentLoaded', () => {
             h('div', { class: 'bond-top' },
                 h('div', { style: 'min-width:0' },
                     h('h4', { class: 'bond-name', text: bond.partnerGameName }),
-                    h('div', { class: 'bond-social' }, icon(PLATFORM_ICONS[bond.partnerSocial.platform] || PLATFORM_ICONS.其他), ' ', socialLabel(bond.partnerSocial)),
+                    socialLine,
                     bond.note ? h('div', { class: 'bond-note', text: bond.note }) : null),
                 h('div', { class: 'actions' },
                     h('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary icon-btn', title: '編輯隊友', 'aria-label': '編輯隊友', onclick: () => openBondModal(bond.id) }, icon('bi-pencil')),
                     h('button', { type: 'button', class: 'btn btn-sm btn-outline-danger icon-btn', title: '結束羈絆', 'aria-label': '結束羈絆', onclick: () => endBond(acc.id, bond.id) }, icon('bi-box-arrow-right')))),
             h('div', { class: 'bond-level' },
-                h('label', { class: 'inline-field' }, '隊友等級', levelInput),
+                levelField,
                 h('span', { text: `等級差 ${s.diff}` })),
             needBox,
             h('div', { class: 'bar-row' }, barLabel, progress(gamesPct, 'games', '羈絆條進度')),
@@ -506,8 +543,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return h('details', { class: 'mt-4' },
             h('summary', { class: 'fw-bold' }, `歷史紀錄（${acc.history.length}）`),
             h('ul', { class: 'list-group mt-2' }, acc.history.map((e) => h('li', { class: 'list-group-item history-item' },
-                h('strong', { text: e.partnerGameName }),
-                h('span', { class: 'meta', text: socialLabel(e.partnerSocial) }),
+                h('strong', { text: partnerLabel(e) }),
+                e.partnerAccountId ? null : h('span', { class: 'meta', text: socialLabel(e.partnerSocial) }),
                 h('span', { class: 'meta', text: `第 ${e.cycleCount} / ${L.CYCLE_LENGTH} 次・${e.totalCycles} 輪・${e.startedAt || '?'} ～ ${e.endedAt}` }),
                 h('span', { class: 'actions' },
                     h('button', { type: 'button', class: 'btn btn-sm btn-outline-primary', disabled: full, title: full ? '隊友已滿 3 位' : null, onclick: () => restoreBond(acc.id, e.id) }, icon('bi-arrow-counterclockwise'), ' 找回'),
@@ -581,26 +618,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 等級 / 每場體力改變後清掉失效的修正值，有清除就提示
-    function reconcileBonds(acc) {
-        let cleared = 0;
-        acc.bonds = acc.bonds.map((b) => {
-            const r = L.reconcileOverride(b, acc.level, data.settings);
-            if (r.cleared) cleared++;
-            return r.bond;
-        });
-        return cleared;
-    }
-    const clearedNotice = (n) => { if (n > 0) showToast(`等級差或每場體力變了，${n} 段羈絆的場數已重新估算`, 'info'); };
-
     function changeMyLevel(accId, input) {
         const level = L.parseLevel(input.value);
         withAccount(accId, (acc) => {
             if (level === null) { showToast(`等級請輸入 ${L.LEVEL_MIN}–${L.LEVEL_MAX} 的整數`, 'error'); input.value = acc.level; return; }
             if (level === acc.level) return;
-            let cleared = 0;
-            commit(() => { acc.level = level; cleared = reconcileBonds(acc); });
-            clearedNotice(cleared);
+            commit(() => { acc.level = level; });
         });
     }
 
@@ -611,13 +634,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!b) return;
             if (level === null) { showToast(`等級請輸入 ${L.LEVEL_MIN}–${L.LEVEL_MAX} 的整數`, 'error'); input.value = b.partnerLevel; return; }
             if (level === b.partnerLevel) return;
-            let cleared = false;
-            commit(() => {
-                const r = L.reconcileOverride({ ...b, partnerLevel: level }, acc.level, data.settings);
-                cleared = r.cleared;
-                replaceBond(acc, r.bond);
-            });
-            clearedNotice(cleared ? 1 : 0);
+            commit(() => replaceBond(acc, { ...b, partnerLevel: level }));
         });
     }
 
@@ -638,15 +655,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (acc.bonds.length >= L.MAX_BONDS_PER_ACCOUNT) { showToast('隊友已滿 3 位，請先結束一段羈絆', 'error'); return; }
             const e = acc.history.find((x) => x.id === entryId);
             if (!e) return;
-            let cleared = false;
             commit(() => {
-                const r = L.reconcileOverride(L.restoreBond(e), acc.level, data.settings);
-                cleared = r.cleared;
                 acc.history = acc.history.filter((x) => x.id !== entryId);
-                acc.bonds.push(r.bond);
+                acc.bonds.push(L.restoreBond(e));
             });
             showToast(`已找回 ${e.partnerGameName}，從第 ${e.cycleCount + 1} 次接續`);
-            clearedNotice(cleared ? 1 : 0);
         });
     }
 
@@ -660,7 +673,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function deleteAccount(accId) {
         withAccount(accId, (acc) => {
-            if (!confirm(`刪除帳號「${acc.name}」？\n會一起刪除 ${acc.bonds.length} 段羈絆和 ${acc.history.length} 筆歷史紀錄，無法復原。`)) return;
+            const linkedFrom = data.accounts.filter((a) => a.id !== accId && a.bonds.some((b) => b.partnerAccountId === accId)).map((a) => a.name);
+            if (!confirm(`刪除帳號「${acc.name}」？\n會一起刪除 ${acc.bonds.length} 段羈絆和 ${acc.history.length} 筆歷史紀錄，無法復原。` +
+                (linkedFrom.length ? `\n\n${linkedFrom.join('、')} 和這個帳號的羈絆會保留，改成一般的其他玩家。` : ''))) return;
             commit(() => {
                 data.accounts = data.accounts.filter((a) => a.id !== accId);
                 fixCurrentAccount();
@@ -689,12 +704,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const level = L.parseLevel($('accountLevel').value);
         if (!name) { showToast('請輸入帳號名稱', 'error'); return; }
         if (level === null) { showToast(`等級請輸入 ${L.LEVEL_MIN}–${L.LEVEL_MAX} 的整數`, 'error'); return; }
-        let cleared = 0;
         commit(() => {
             const acc = editingAccountId && data.accounts.find((a) => a.id === editingAccountId);
             if (acc) {
                 acc.name = name;
-                if (acc.level !== level) { acc.level = level; cleared = reconcileBonds(acc); }
+                acc.level = level;
             } else {
                 const a = L.makeAccount({ name, level });
                 data.accounts.push(a);
@@ -703,7 +717,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
         modal('accountModal').hide();
-        clearedNotice(cleared);
     });
 
     // ---------------- Modal：隊友 ----------------
@@ -714,6 +727,21 @@ document.addEventListener('DOMContentLoaded', () => {
     $('partnerPlatform').addEventListener('change', syncCustomPlatform);
     $('restoreToggle').addEventListener('click', () => { $('restoreList').hidden = !$('restoreList').hidden; });
 
+    // 隊友類型：其他玩家 / 自己的帳號
+    const partnerIsOwn = () => $('partnerTypeOwn').checked;
+    function syncPartnerType() {
+        $('otherPlayerFields').hidden = partnerIsOwn();
+        $('ownAccountFields').hidden = !partnerIsOwn();
+    }
+    $('partnerTypeOther').addEventListener('change', syncPartnerType);
+    $('partnerTypeOwn').addEventListener('change', syncPartnerType);
+
+    // 可以選的自己帳號：不含目前帳號、不含這個帳號已經有的自己帳號隊友 (編輯中的那位除外)
+    function ownAccountChoices(acc, editingBond) {
+        const taken = new Set(acc.bonds.filter((b) => b !== editingBond && b.partnerAccountId).map((b) => b.partnerAccountId));
+        return data.accounts.filter((a) => a.id !== acc.id && !taken.has(a.id));
+    }
+
     function openBondModal(bondId) {
         const acc = currentAccount();
         if (!acc) return;
@@ -721,6 +749,17 @@ document.addEventListener('DOMContentLoaded', () => {
         editingBondId = bondId;
         const b = bondId ? findBond(acc, bondId) : null;
         $('bondModalTitle').textContent = b ? '編輯隊友' : '新增隊友';
+
+        const choices = ownAccountChoices(acc, b);
+        $('partnerAccount').replaceChildren(...choices.map((a) => h('option', { value: a.id, text: `${a.name}（等級 ${a.level}）` })));
+        $('partnerTypeOwn').disabled = choices.length === 0;
+        $('ownAccountHint').hidden = choices.length > 0;
+        const own = !!(b && b.partnerAccountId);
+        $('partnerTypeOwn').checked = own;
+        $('partnerTypeOther').checked = !own;
+        if (own) $('partnerAccount').value = b.partnerAccountId;
+        syncPartnerType();
+
         $('partnerName').value = b ? b.partnerGameName : '';
         $('partnerPlatform').value = b ? b.partnerSocial.platform : 'LINE';
         $('partnerCustomPlatform').value = b ? (b.partnerSocial.customPlatform || '') : '';
@@ -738,7 +777,7 @@ document.addEventListener('DOMContentLoaded', () => {
         $('restoreList').replaceChildren(...acc.history.map((e) => h('button', {
             type: 'button', class: 'list-group-item list-group-item-action',
             onclick: () => { modal('bondModal').hide(); restoreBond(acc.id, e.id); },
-        }, h('strong', { text: e.partnerGameName }), h('span', { class: 'text-muted small', text: `　第 ${e.cycleCount} 次・結束於 ${e.endedAt}` }))));
+        }, h('strong', { text: partnerLabel(e) }), h('span', { class: 'text-muted small', text: `　第 ${e.cycleCount} 次・結束於 ${e.endedAt}` }))));
         modal('bondModal').show();
     }
 
@@ -746,32 +785,37 @@ document.addEventListener('DOMContentLoaded', () => {
         ev.preventDefault();
         const acc = currentAccount();
         if (!acc) return;
-        const name = $('partnerName').value.trim();
-        const level = L.parseLevel($('partnerLevel').value);
         const spgRaw = $('bondStaminaPerGame').value.trim();
         const spg = spgRaw === '' ? null : L.parseStaminaPerGame(spgRaw);
-        if (!name) { showToast('請輸入隊友遊戲名稱', 'error'); return; }
-        if (level === null) { showToast(`等級請輸入 ${L.LEVEL_MIN}–${L.LEVEL_MAX} 的整數`, 'error'); return; }
         if (spgRaw !== '' && spg === null) { showToast(`每場體力請輸入 1–${L.STAMINA_PER_GAME_MAX} 的整數`, 'error'); return; }
-        const partnerSocial = {
-            platform: $('partnerPlatform').value,
-            customPlatform: $('partnerPlatform').value === '其他' ? $('partnerCustomPlatform').value.trim() : '',
-            handle: $('partnerHandle').value.trim(),
-        };
         const note = $('bondNote').value.trim();
-        let cleared = false;
+
+        let fields;
+        if (partnerIsOwn()) {
+            const target = data.accounts.find((a) => a.id === $('partnerAccount').value);
+            if (!target) { showToast('請選擇自己的帳號', 'error'); return; }
+            // 名稱與等級由 normalizeData 跟著那個帳號更新
+            fields = { partnerAccountId: target.id, partnerGameName: target.name, partnerLevel: target.level, partnerSocial: { platform: '其他', customPlatform: '', handle: '' } };
+        } else {
+            const name = $('partnerName').value.trim();
+            const level = L.parseLevel($('partnerLevel').value);
+            if (!name) { showToast('請輸入隊友遊戲名稱', 'error'); return; }
+            if (level === null) { showToast(`等級請輸入 ${L.LEVEL_MIN}–${L.LEVEL_MAX} 的整數`, 'error'); return; }
+            fields = {
+                partnerAccountId: null, partnerGameName: name, partnerLevel: level,
+                partnerSocial: {
+                    platform: $('partnerPlatform').value,
+                    customPlatform: $('partnerPlatform').value === '其他' ? $('partnerCustomPlatform').value.trim() : '',
+                    handle: $('partnerHandle').value.trim(),
+                },
+            };
+        }
         commit(() => {
             const b = editingBondId && findBond(acc, editingBondId);
-            if (b) {
-                const r = L.reconcileOverride({ ...b, partnerGameName: name, partnerSocial, partnerLevel: level, staminaPerGame: spg, note }, acc.level, data.settings);
-                cleared = r.cleared;
-                replaceBond(acc, r.bond);
-            } else if (acc.bonds.length < L.MAX_BONDS_PER_ACCOUNT) {
-                acc.bonds.push(L.makeBond({ partnerGameName: name, partnerSocial, partnerLevel: level, staminaPerGame: spg, note }, today()));
-            }
+            if (b) replaceBond(acc, { ...b, ...fields, staminaPerGame: spg, note });
+            else if (acc.bonds.length < L.MAX_BONDS_PER_ACCOUNT) acc.bonds.push(L.makeBond({ ...fields, staminaPerGame: spg, note }, today()));
         });
         modal('bondModal').hide();
-        clearedNotice(cleared ? 1 : 0);
     });
 
     // ---------------- Modal：修改次數 ----------------
@@ -821,7 +865,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const s = L.todayStatus(b, acc.level, data.settings, t);
             return h('label', { class: 'list-group-item d-flex align-items-center gap-2' },
                 h('input', { type: 'checkbox', class: 'form-check-input m-0', value: b.id, checked: true }),
-                h('span', { class: 'flex-grow-1', text: b.partnerGameName }),
+                h('span', { class: 'flex-grow-1', text: partnerLabel(b) }),
                 h('span', { class: 'text-muted small', text: `${s.played} / ${s.limit} 場` }));
         }));
         modal('playedModal').show();
@@ -840,10 +884,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const v = L.parseStaminaPerGame(ev.target.value);
         if (v === null) { showToast(`每場體力請輸入 1–${L.STAMINA_PER_GAME_MAX} 的整數`, 'error'); ev.target.value = data.settings.staminaPerGame; return; }
         if (v === data.settings.staminaPerGame) return;
-        let cleared = 0;
-        commit(() => { data.settings.staminaPerGame = v; data.accounts.forEach((a) => { cleared += reconcileBonds(a); }); });
-        showToast(`每場體力預設改為 ${v}`);
-        clearedNotice(cleared);
+        commit(() => { data.settings.staminaPerGame = v; });
+        if (!$('toast').classList.contains('show')) showToast(`每場體力預設改為 ${v}`);
     });
 
     $('exportBtn').addEventListener('click', () => downloadJson(data, `bond_tracker_${today()}.json`));
