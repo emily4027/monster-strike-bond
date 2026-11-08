@@ -306,3 +306,90 @@ test('不用拉進隊伍也能調整進度，之後選進隊伍會接續', () =>
     assert.equal(d.accounts[0].bonds.length, 0);
     assert.equal(L.selectPartner(d.accounts[0], ref, TODAY).error, 'doneToday');
 });
+
+// 自己兩個帳號之間的羈絆：同一段，兩邊各存一份、保持一致
+const twoAccounts = () => {
+    const a = { ...L.makeAccount({ name: '羽入', level: 764 }), id: 'acc_a' };
+    const b = { ...L.makeAccount({ name: '梨花', level: 551 }), id: 'acc_b' };
+    return { settings, roster: [], accounts: [a, b] };
+};
+const step = (before, mutate, today = TODAY) => {
+    const after = JSON.parse(JSON.stringify(before));
+    mutate(after);
+    return L.normalizeData(L.mirrorOwnPairs(before, after, today), today).data;
+};
+const pairOf = (d, accId, otherId) => {
+    const acc = d.accounts.find((a) => a.id === accId);
+    return L.findPair(acc, { type: 'account', id: otherId });
+};
+
+test('自己帳號之間：一邊選了對方，兩邊隊伍都有；+1 場、羈完、還沒滿都同步', () => {
+    let d = L.normalizeData(twoAccounts(), TODAY).data;
+    d = step(d, (x) => { x.accounts[0] = L.selectPartner(x.accounts[0], { type: 'account', id: 'acc_b' }, TODAY).account; });
+    assert.equal(pairOf(d, 'acc_b', 'acc_a').active, true);
+    assert.equal(d.accounts[1].bonds[0].partnerGameName, '羽入');
+
+    // 從梨花那邊 +1 場 → 羽入那邊也 +1
+    d = step(d, (x) => { const acc = x.accounts[1]; acc.bonds[0] = L.addGame(acc.bonds[0], acc.level, settings, TODAY).bond; });
+    assert.equal(pairOf(d, 'acc_a', 'acc_b').entry.gamesPlayed, 1);
+
+    // 已經滿了 → 兩邊都今天羈完、退出隊伍
+    d = step(d, (x) => { const acc = x.accounts[0]; acc.bonds[0] = L.markFull(acc.bonds[0], acc.level, settings, TODAY).bond; });
+    for (const [me, other] of [['acc_a', 'acc_b'], ['acc_b', 'acc_a']]) {
+        const p = pairOf(d, me, other);
+        assert.equal(p.active, false);
+        assert.equal(p.entry.lastCompletedDate, TODAY);
+        assert.equal(p.entry.cycleCount, 1);
+    }
+
+    // 還沒滿 (從羽入那邊) → 兩邊都放回隊伍、次數撤銷
+    d = step(d, (x) => {
+        const acc = x.accounts[0];
+        x.accounts[0] = L.undoDoneToday(acc, acc.history[0].id, settings, TODAY).account;
+    });
+    for (const [me, other] of [['acc_a', 'acc_b'], ['acc_b', 'acc_a']]) {
+        const p = pairOf(d, me, other);
+        assert.equal(p.active, true);
+        assert.equal(p.entry.cycleCount, 0);
+    }
+});
+
+test('自己帳號之間：調整進度、結束羈絆、刪除歷史都同步', () => {
+    let d = L.normalizeData(twoAccounts(), TODAY).data;
+    d = step(d, (x) => { x.accounts[0] = L.setPairProgress(x.accounts[0], { type: 'account', id: 'acc_b' }, { cycleCount: 5, totalCycles: 1, completedToday: false }, TODAY); });
+    assert.equal(pairOf(d, 'acc_b', 'acc_a').entry.cycleCount, 5);
+    assert.equal(pairOf(d, 'acc_b', 'acc_a').entry.totalCycles, 1);
+
+    // 梨花選羽入 → 接續 5 次，羽入那邊也進隊伍
+    d = step(d, (x) => { x.accounts[1] = L.selectPartner(x.accounts[1], { type: 'account', id: 'acc_a' }, TODAY).account; });
+    assert.equal(pairOf(d, 'acc_a', 'acc_b').active, true);
+    assert.equal(pairOf(d, 'acc_a', 'acc_b').entry.cycleCount, 5);
+
+    // 羽入結束羈絆 → 梨花那邊也結束
+    d = step(d, (x) => {
+        const acc = x.accounts[0];
+        const b = acc.bonds[0];
+        acc.bonds = [];
+        acc.history.unshift(L.endBond(b, TODAY));
+    });
+    assert.equal(pairOf(d, 'acc_b', 'acc_a').active, false);
+    assert.equal(d.accounts[1].bonds.length, 0);
+
+    // 刪除歷史 → 另一邊也刪
+    d = step(d, (x) => { x.accounts[1].history = []; });
+    assert.equal(pairOf(d, 'acc_a', 'acc_b'), null);
+});
+
+test('自己帳號之間：舊資料兩邊不一致時，以隊伍中 / 次數多的那邊為準；對方隊伍滿了不能選', () => {
+    const d0 = twoAccounts();
+    d0.accounts[0].bonds.push({ ...L.makeBond({ partnerAccountId: 'acc_b' }, TODAY), cycleCount: 1, lastCompletedDate: '2026-11-07' });
+    d0.accounts[1].history.push({ ...L.makeBond({ partnerAccountId: 'acc_a' }, TODAY), cycleCount: 0, endedAt: '2026-11-01' });
+    const d = L.normalizeData(d0, TODAY).data;
+    assert.equal(pairOf(d, 'acc_b', 'acc_a').active, true);
+    assert.equal(pairOf(d, 'acc_b', 'acc_a').entry.cycleCount, 1);
+
+    const full = twoAccounts();
+    for (let i = 0; i < L.MAX_BONDS_PER_ACCOUNT; i++) full.accounts[1].bonds.push(L.makeBond({ partnerPlayerId: 'p' + i }, TODAY));
+    assert.equal(L.ownPairHasRoom(full, 'acc_b', 'acc_a'), false);
+    assert.equal(L.ownPairHasRoom(full, 'acc_a', 'acc_b'), true);
+});

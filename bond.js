@@ -517,6 +517,9 @@
         d.accounts.forEach((acc) => {
             acc.bonds = acc.bonds.map((b) => fix(acc, b, true));
             acc.history = acc.history.map((b) => fix(acc, b, false));
+        });
+        repairOwnPairs(d, today);
+        d.accounts.forEach((acc) => {
             if (today) {
                 const done = acc.bonds.filter((b) => b.lastCompletedDate === today);
                 if (done.length) {
@@ -526,6 +529,122 @@
             }
         });
         return { data: d, cleared };
+    }
+
+    // ---------------- 自己兩個帳號之間的羈絆：同一段，兩邊各存一份、保持一致 ----------------
+    // 羽入和梨花的羈絆 = 梨花和羽入的羈絆：兩個帳號的隊伍都有它 (各佔一個位子)，次數、場數、今天羈完都一樣
+
+    const PAIR_FIELDS = ['cycleCount', 'totalCycles', 'gamesPlayed', 'gamesOverride', 'overrideBasis',
+        'lastCompletedDate', 'lastCompletion', 'staminaPerGame', 'startedAt', 'endedAt'];
+    const pairKey = (entry, active) => stableStringify([active, ...PAIR_FIELDS.map((f) => (active && f === 'endedAt' ? null : entry[f] === undefined ? null : entry[f]))]);
+    const isOwnPair = (acc, e, ids) => !!e.partnerAccountId && e.partnerAccountId !== acc.id && ids.has(e.partnerAccountId);
+
+    // 某帳號裡和 partnerId 那段羈絆的位置：隊伍中優先，否則最近結束的歷史
+    function locatePair(acc, partnerId) {
+        const ref = { type: 'account', id: partnerId };
+        const i = acc.bonds.findIndex((b) => sameRef(b, ref));
+        if (i >= 0) return { list: 'bonds', index: i, entry: acc.bonds[i], active: true };
+        let best = -1;
+        acc.history.forEach((h, j) => {
+            if (sameRef(h, ref) && (best < 0 || String(h.endedAt) > String(acc.history[best].endedAt))) best = j;
+        });
+        return best >= 0 ? { list: 'history', index: best, entry: acc.history[best], active: false } : null;
+    }
+
+    // 把 src (在 A 帳號、active 表示在隊伍中) 的進度複製到 B 帳號裡對應的那一筆，位置也跟著 (隊伍 / 歷史)
+    function placeCounterpart(A, B, src, active, today) {
+        const loc = locatePair(B, A.id);
+        let cp;
+        if (loc) {
+            cp = loc.entry;
+            B[loc.list].splice(loc.index, 1);
+        } else {
+            cp = makeBond({ partnerAccountId: A.id, partnerGameName: A.name, partnerLevel: A.level }, src.startedAt || today);
+        }
+        PAIR_FIELDS.forEach((f) => {
+            if (src[f] === undefined) delete cp[f];
+            else cp[f] = JSON.parse(JSON.stringify(src[f]));
+        });
+        const toActive = active && B.bonds.length < MAX_BONDS_PER_ACCOUNT;
+        if (toActive) {
+            delete cp.endedAt;
+            if (loc && loc.list === 'bonds') B.bonds.splice(loc.index, 0, cp); else B.bonds.push(cp);
+        } else {
+            if (!cp.endedAt) cp.endedAt = today || src.startedAt || null;
+            if (loc && loc.list === 'history') B.history.splice(loc.index, 0, cp); else B.history.unshift(cp);
+        }
+    }
+
+    // 修改後：把這次有變的「自己帳號之間的羈絆」複製到另一邊；刪掉的歷史另一邊也刪
+    function mirrorOwnPairs(before, after, today) {
+        const d = JSON.parse(JSON.stringify(after));
+        const ids = new Set(d.accounts.map((a) => a.id));
+        const prev = new Map();
+        (before && before.accounts || []).forEach((acc) => {
+            acc.bonds.forEach((e) => prev.set(e.id, { accId: acc.id, entry: e, active: true }));
+            acc.history.forEach((e) => prev.set(e.id, { accId: acc.id, entry: e, active: false }));
+        });
+        const present = new Set();
+        const changed = [];
+        d.accounts.forEach((acc) => [['bonds', true], ['history', false]].forEach(([list, active]) => acc[list].forEach((e) => {
+            present.add(e.id);
+            if (!isOwnPair(acc, e, ids)) return;
+            const p = prev.get(e.id);
+            if (!p || pairKey(p.entry, p.active) !== pairKey(e, active)) changed.push({ accId: acc.id, id: e.id });
+        })));
+        const done = new Set();
+        changed.forEach(({ accId, id }) => {
+            const A = d.accounts.find((a) => a.id === accId);
+            const where = A.bonds.find((b) => b.id === id) ? 'bonds' : 'history';
+            const e = A[where].find((x) => x.id === id);
+            const key = [accId, e.partnerAccountId].sort().join('|');
+            if (done.has(key)) return;   // 同一次兩邊都改了：以先找到的為準
+            done.add(key);
+            placeCounterpart(A, d.accounts.find((a) => a.id === e.partnerAccountId), e, where === 'bonds', today);
+        });
+        prev.forEach((p, id) => {
+            if (present.has(id) || p.active || !ids.has(p.accId) || !p.entry.partnerAccountId || !ids.has(p.entry.partnerAccountId)) return;
+            const B = d.accounts.find((a) => a.id === p.entry.partnerAccountId);
+            const i = B.history.findIndex((h) => h.partnerAccountId === p.accId && h.endedAt === p.entry.endedAt && h.cycleCount === p.entry.cycleCount);
+            if (i >= 0) B.history.splice(i, 1);
+        });
+        return d;
+    }
+
+    // 載入 / 合併後：兩邊不一致 (或只有一邊有) 時，用比較「新」的那邊補齊另一邊
+    //   隊伍中 > 今天羈完 > 最近結束；再一樣就看次數多的
+    function repairOwnPairs(d, today) {
+        const ids = new Set(d.accounts.map((a) => a.id));
+        const byId = new Map(d.accounts.map((a) => [a.id, a]));
+        const score = (loc) => (!loc ? [-1] : [
+            loc.active ? 3 : loc.entry.lastCompletedDate && loc.entry.lastCompletedDate === today ? 2 : 1,
+            loc.active ? '' : String(loc.entry.endedAt || ''),
+            loc.entry.totalCycles * CYCLE_LENGTH + loc.entry.cycleCount,
+            loc.entry.gamesPlayed || 0,
+        ]);
+        const better = (x, y) => {
+            for (let i = 0; i < x.length; i++) { if (x[i] > y[i]) return true; if (x[i] < y[i]) return false; }
+            return false;
+        };
+        const seen = new Set();
+        d.accounts.forEach((A) => [...A.bonds, ...A.history].forEach((e) => {
+            if (!isOwnPair(A, e, ids)) return;
+            const B = byId.get(e.partnerAccountId);
+            const key = [A.id, B.id].sort().join('|');
+            if (seen.has(key)) return;
+            seen.add(key);
+            const la = locatePair(A, B.id), lb = locatePair(B, A.id);
+            if (la && lb && pairKey(la.entry, la.active) === pairKey(lb.entry, lb.active)) return;
+            if (better(score(lb), score(la))) placeCounterpart(B, A, lb.entry, lb.active, today);
+            else placeCounterpart(A, B, la.entry, la.active, today);
+        }));
+    }
+
+    // 選自己的另一個帳號當隊友 / 放回隊伍時，對方隊伍也要有位子 (已經在對方隊伍裡就不用)
+    function ownPairHasRoom(data, partnerAccountId, accId) {
+        const B = data.accounts.find((a) => a.id === partnerAccountId);
+        if (!B) return true;
+        return B.bonds.length < MAX_BONDS_PER_ACCOUNT || B.bonds.some((b) => b.partnerAccountId === accId);
     }
 
     // ---------------- 雲端同步：版本比對與三方合併 ----------------
@@ -620,7 +739,7 @@
         rewardFor, nextCompletionNumber, ticketInfo,
         addGame, removeGame, markFull, notFullYet, canUndoCompletion, reconcileOverride, setCounts,
         makeAccount, makeBond, makePlayer, endBond, restoreBond, legacyPlayerId, partnerRefOf, sameRef, selectPartner, undoDoneToday, findPair, setPairProgress,
-        emptyData, sanitizeData, normalizeData,
+        emptyData, sanitizeData, normalizeData, mirrorOwnPairs, ownPairHasRoom,
         cloudStampOf, sameStamp, stableStringify, mergeData, sameData, countChanges,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

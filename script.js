@@ -131,7 +131,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // 修改資料的唯一入口：改完存檔、重畫
     // 改完後統一整理：自己帳號隊友的名稱 / 等級跟著更新、失效的修正場數清掉 (bond.js normalizeData)
     function commit(mutate) {
+        const before = JSON.parse(JSON.stringify(data));
         mutate();
+        // 自己兩個帳號之間的羈絆是同一段：這次改了哪一邊，就複製到另一邊
+        data = L.mirrorOwnPairs(before, data, today());
         const n = L.normalizeData(data, today());
         data = n.data;
         saveData();
@@ -387,6 +390,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ownSide && ref.type === 'account') {
             const self = data.accounts.find((a) => a.id === ref.id);
             if (self) [...self.bonds, ...doneToday(self)].forEach((b) => {
+                // 和自己其他帳號的那段，上面已經從對方那邊列過 (同一段羈絆)
+                if (b.partnerAccountId && out.some((x) => x.acc && x.acc.id === b.partnerAccountId)) return;
                 out.push({ label: b.partnerGameName, b, s: L.todayStatus(b, self.level, data.settings, t), from: self });
             });
         }
@@ -466,8 +471,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }, anyOpen ? '全部收合' : '全部展開') : null;
 
         // 隊伍裡的都是還沒羈完的 (羈完會自動退出)
-        const pendingTotal = data.accounts.reduce((n, acc) => n + acc.bonds.length, 0);
-        const doneTotal = data.accounts.reduce((n, acc) => n + acc.history.filter((e) => e.lastCompletedDate === today()).length, 0);
+        // 自己兩個帳號之間的羈絆兩邊都有一份，只算一次
+        const once = (acc, e) => !e.partnerAccountId || !data.accounts.some((a) => a.id === e.partnerAccountId) || acc.id < e.partnerAccountId;
+        const pendingTotal = data.accounts.reduce((n, acc) => n + acc.bonds.filter((e) => once(acc, e)).length, 0);
+        const doneTotal = data.accounts.reduce((n, acc) => n + acc.history.filter((e) => e.lastCompletedDate === today() && once(acc, e)).length, 0);
         const summary = pendingTotal === 0
             ? (doneTotal ? `🎉 今天已羈完 ${doneTotal} 段，隊伍都空出來了` : '')
             : `今天還有 ${pendingTotal} 段沒羈完` + (doneTotal ? `・已羈完 ${doneTotal} 段` : '');
@@ -727,6 +734,10 @@ document.addEventListener('DOMContentLoaded', () => {
         withAccount(accId, (acc) => {
             const e = acc.history.find((x) => x.id === bondId);
             if (!e) return;
+            if (e.partnerAccountId && !L.ownPairHasRoom(data, e.partnerAccountId, acc.id)) {
+                showToast(`${e.partnerGameName} 的隊伍已滿 3 位，請先在那個帳號結束一位再放回`, "error");
+                return;
+            }
             const r = L.undoDoneToday(acc, bondId, data.settings, today());
             if (r.error === 'full') { showToast('隊伍已滿 3 位，請先結束一位再放回', 'error'); return; }
             if (r.error) { showToast('已經換日，無法撤銷，請用「修改次數」調整', 'error'); return; }
@@ -838,15 +849,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const taken = acc.bonds.some((b) => L.sameRef(b, ref));
             const past = acc.history.filter((e) => L.sameRef(e, ref)).sort((x, y) => String(y.endedAt).localeCompare(String(x.endedAt)))[0];
             const doneToday = !taken && past && past.lastCompletedDate === today();
+            const otherFull = !taken && !doneToday && ref.type === "account" && !L.ownPairHasRoom(data, ref.id, acc.id);
             const others = partnerBonds(ref).filter((x) => x.acc.id !== acc.id).map((x) => x.acc.name);
             return h('button', {
-                type: 'button', class: 'list-group-item list-group-item-action pick-item', disabled: taken || doneToday,
+                type: 'button', class: 'list-group-item list-group-item-action pick-item', disabled: taken || doneToday || otherFull,
                 onclick: () => { modal('pickModal').hide(); pickPartner(acc.id, ref); },
             },
             h('div', { class: 'd-flex justify-content-between gap-2' }, h('strong', { text: label }), h('span', { class: 'text-muted small', text: meta })),
             taken ? h('div', { class: 'small text-muted', text: '已經在這個帳號的隊伍裡' }) : null,
             doneToday ? h('div', { class: 'small text-success', text: '✅ 今天已羈完，明天再選' }) : null,
-            !taken && !doneToday && past ? h('div', { class: 'small text-primary', text: `以前羈絆到第 ${past.cycleCount} 次，選了會接續` }) : null,
+            otherFull ? h('div', { class: 'small text-muted', text: '這個帳號的隊伍已滿 3 位' }) : null,
+            !taken && !doneToday && !otherFull && past ? h('div', { class: 'small text-primary', text: `以前羈絆到第 ${past.cycleCount} 次，選了會接續` }) : null,
             others.length ? h('div', { class: 'small text-muted', text: `也和 ${others.join('、')} 羈絆中` }) : null);
         });
         $('pickList').replaceChildren(...(items.length ? items
@@ -856,6 +869,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function pickPartner(accId, ref) {
         withAccount(accId, (acc) => {
+            if (ref.type === "account" && !L.ownPairHasRoom(data, ref.id, acc.id)) {
+                const other = data.accounts.find((a) => a.id === ref.id);
+                showToast(`${other ? other.name : "那個帳號"} 的隊伍已滿 3 位，同一段羈絆兩邊都要有位子`, "error");
+                return;
+            }
             const r = L.selectPartner(acc, ref, today());
             if (r.error) {
                 showToast({ full: '一個帳號最多 3 位隊友', duplicate: '已經在這個帳號的隊伍裡', self: '不能選自己', doneToday: '今天已經羈完了，明天再選' }[r.error], 'error');
