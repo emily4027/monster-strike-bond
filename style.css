@@ -1,7 +1,6 @@
 /* --- 變數 --- */
 :root {
     --bs-body-font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
-    --bs-body-bg: transparent;
     --primary-color: #333;
     --accent: #ec407a;
     --accent-dark: #c2185b;
