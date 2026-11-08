@@ -120,15 +120,27 @@ body {
 .roster-summary { font-weight: 700; color: var(--accent-dark); }
 .roster-group-title { font-size: 0.85rem; color: #777; font-weight: 700; margin: 14px 0 6px; }
 .roster-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
-.roster-row {
-    display: grid; grid-template-columns: minmax(140px, 220px) 1fr auto; align-items: center; gap: 6px 12px;
-    padding: 8px 10px; border-radius: 10px; background: #fafafa;
+.roster-row { border-radius: 10px; background: #fafafa; }
+.roster-row[open] { background: #f4f1f6; }
+.roster-summary-line {
+    display: flex; align-items: center; gap: 8px 12px; padding: 10px 12px;
+    cursor: pointer; list-style: none; min-height: 44px;
 }
-.roster-who { display: flex; flex-direction: column; min-width: 0; }
+.roster-summary-line::-webkit-details-marker { display: none; }
+.roster-summary-line::before {
+    content: '▸'; color: #999; transition: transform 0.2s; flex-shrink: 0;
+}
+.roster-row[open] > .roster-summary-line::before { transform: rotate(90deg); }
+.roster-who { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
 .roster-who strong { word-break: break-all; }
 .roster-meta { font-size: 0.8rem; color: #777; word-break: break-all; }
+.roster-brief { font-size: 0.85rem; white-space: nowrap; flex-shrink: 0; }
+.roster-brief.pending { color: var(--accent-dark); font-weight: 700; }
+.roster-brief.done { color: var(--done); }
+.roster-brief.idle { color: #999; }
+.roster-body { padding: 0 12px 12px 30px; display: flex; flex-direction: column; gap: 10px; }
 .roster-status { display: flex; flex-wrap: wrap; gap: 6px; }
-.roster-actions { display: flex; gap: 4px; }
+.roster-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .roster-chip {
     border: none; border-radius: 999px; padding: 2px 10px; font-size: 0.85rem;
     background: var(--accent-light); color: var(--accent-dark);
@@ -259,9 +271,9 @@ body {
     .bond-grid { grid-template-columns: 1fr; }
     .account-head .actions { margin-left: 0; }
     .overview .btn { margin-left: 0; width: 100%; min-height: 44px; }
-    .roster-row { grid-template-columns: 1fr auto; }
-    .roster-status { grid-column: 1 / -1; grid-row: 2; }
-    .roster-actions { grid-column: 2; grid-row: 1; }
+    .roster-summary-line { flex-wrap: wrap; }
+    .roster-brief { white-space: normal; }
+    .roster-body { padding-left: 12px; }
     .toolbox-menu-wrapper { bottom: 16px; right: 16px; }
     .toolbox-main-btn { padding: 10px 18px; }
     .github-project-link { bottom: 16px; left: 16px; padding: 8px 14px; }

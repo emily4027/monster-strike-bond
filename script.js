@@ -393,40 +393,77 @@ document.addEventListener('DOMContentLoaded', () => {
         return out;
     }
 
-    // 隊友名單：自己的帳號 + 其他玩家，每位顯示和哪些帳號羈絆中、今天羈完了沒
+    // 名單哪幾列是展開的 (只記在這台瀏覽器)
+    const ROSTER_OPEN_KEY = 'bond_roster_open_v1';
+    const rosterOpen = (() => {
+        try { return new Set(JSON.parse(store.get(ROSTER_OPEN_KEY) || '[]')); } catch (e) { return new Set(); }
+    })();
+    const saveRosterOpen = () => store.set(ROSTER_OPEN_KEY, JSON.stringify([...rosterOpen]));
+    const refKey = (ref) => ref.type + ':' + ref.id;
+
+    // 隊友名單：自己的帳號 + 其他玩家。收合時只看摘要，點開才看和各帳號的羈絆
     function renderRoster() {
         const box = $('rosterSection');
-        const statusChips = (ref) => {
-            const list = partnerBonds(ref, { ownSide: true });
-            if (list.length === 0) return [h('span', { class: 'roster-chip idle', text: '未羈絆' })];
-            // 點了切到羈絆所在的帳號 (自己帳號那一列的「它自己去羈絆的」在 from 帳號底下)
-            return list.map(({ acc, label, s, from }) => {
+        const relations = (ref) => partnerBonds(ref, { ownSide: true });
+        const summaryOf = (list) => {
+            if (list.length === 0) return h('span', { class: 'roster-brief idle', text: '未羈絆' });
+            const pending = list.filter((x) => !x.s.completedToday).length;
+            const done = list.length - pending;
+            return h('span', { class: 'roster-brief' + (pending ? ' pending' : ' done') },
+                [pending ? `隊伍中 ${pending}` : '', done ? `今天已羈完 ${done}` : ''].filter(Boolean).join('・'));
+        };
+        // 點了切到羈絆所在的帳號 (自己帳號那一列的「它自己去羈絆的」在 from 帳號底下)
+        const relationItems = (list) => (list.length === 0
+            ? [h('span', { class: 'roster-chip idle', text: '還沒有和任何帳號羈絆' })]
+            : list.map(({ acc, label, b, s, from }) => {
                 const name = label || acc.name;
                 const target = from || acc;
                 return h('button', {
                     type: 'button', class: 'roster-chip' + (s.completedToday ? ' done' : ''), title: `切換到 ${target.name}`,
                     onclick: () => selectAccount(target.id),
-                }, s.completedToday ? `${name} ✅ 已羈完` : `${name}：還差 ${s.remainingGames} 場`);
+                }, (s.completedToday ? `${name} ✅ 已羈完` : `${name}：還差 ${s.remainingGames} 場`) + `・本輪 ${b.cycleCount}/${L.CYCLE_LENGTH}`);
+            }));
+        const progressBtn = (ref) => h('button', {
+            type: 'button', class: 'btn btn-sm btn-outline-primary', onclick: () => openProgressModal(ref),
+        }, icon('bi-sliders'), ' 調整進度');
+        const row = (label, meta, ref, actions) => {
+            const list = relations(ref);
+            const key = refKey(ref);
+            const el = h('details', { class: 'roster-row', open: rosterOpen.has(key) },
+                h('summary', { class: 'roster-summary-line' },
+                    h('span', { class: 'roster-who' }, h('strong', { text: label }), meta ? h('span', { class: 'roster-meta', text: meta }) : null),
+                    summaryOf(list)),
+                h('div', { class: 'roster-body' },
+                    h('div', { class: 'roster-status' }, relationItems(list)),
+                    h('div', { class: 'roster-actions' }, actions)));
+            el.addEventListener('toggle', () => {
+                if (el.open) rosterOpen.add(key); else rosterOpen.delete(key);
+                saveRosterOpen();
             });
+            return el;
         };
-        const progressBtn = (ref, name) => h('button', {
-            type: 'button', class: 'btn btn-sm btn-outline-primary icon-btn', title: '調整進度', 'aria-label': `調整和 ${name} 的進度`,
-            onclick: () => openProgressModal(ref),
-        }, icon('bi-sliders'));
-        const row = (label, meta, ref, actions) => h('li', { class: 'roster-row' },
-            h('div', { class: 'roster-who' }, h('strong', { text: label }), meta ? h('span', { class: 'roster-meta', text: meta }) : null),
-            h('div', { class: 'roster-status' }, statusChips(ref)),
-            h('div', { class: 'roster-actions' }, actions));
 
         const own = data.accounts.length >= 2
-            ? data.accounts.map((a) => row('👤 ' + a.name, `等級 ${a.level}`, { type: 'account', id: a.id }, [progressBtn({ type: 'account', id: a.id }, a.name)]))
+            ? data.accounts.map((a) => row('👤 ' + a.name, `等級 ${a.level}`, { type: 'account', id: a.id }, [progressBtn({ type: 'account', id: a.id })]))
             : [];
         const players = data.roster.map((p) => row('🌐 ' + p.name,
             [`等級 ${p.level}`, p.social.handle || p.social.platform !== '其他' || p.social.customPlatform ? socialLabel(p.social) : '', p.note].filter(Boolean).join('・'),
             { type: 'player', id: p.id },
-            [progressBtn({ type: 'player', id: p.id }, p.name),
-                h('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary icon-btn', title: '編輯', 'aria-label': `編輯 ${p.name}`, onclick: () => openPlayerModal(p.id) }, icon('bi-pencil')),
-                h('button', { type: 'button', class: 'btn btn-sm btn-outline-danger icon-btn', title: '從名單刪除', 'aria-label': `刪除 ${p.name}`, onclick: () => deletePlayer(p.id) }, icon('bi-trash'))]));
+            [progressBtn({ type: 'player', id: p.id }),
+                h('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary', 'aria-label': `編輯 ${p.name}`, onclick: () => openPlayerModal(p.id) }, icon('bi-pencil'), ' 編輯'),
+                h('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', 'aria-label': `刪除 ${p.name}`, onclick: () => deletePlayer(p.id) }, icon('bi-trash'), ' 刪除')]));
+        const allRows = [...own, ...players];
+        const anyOpen = allRows.some((r) => r.open);
+        const toggleAll = allRows.length ? h('button', {
+            type: 'button', class: 'btn btn-sm btn-outline-secondary',
+            onclick: () => {
+                const keys = [...(data.accounts.length >= 2 ? data.accounts.map((a) => refKey({ type: 'account', id: a.id })) : []),
+                    ...data.roster.map((p) => refKey({ type: 'player', id: p.id }))];
+                if (anyOpen) rosterOpen.clear(); else keys.forEach((k) => rosterOpen.add(k));
+                saveRosterOpen();
+                renderRoster();
+            },
+        }, anyOpen ? '全部收合' : '全部展開') : null;
 
         // 隊伍裡的都是還沒羈完的 (羈完會自動退出)
         const pendingTotal = data.accounts.reduce((n, acc) => n + acc.bonds.length, 0);
@@ -439,7 +476,8 @@ document.addEventListener('DOMContentLoaded', () => {
             h('div', { class: 'roster-head' },
                 h('h2', { class: 'section-title m-0' }, icon('bi-person-lines-fill'), ' 隊友名單'),
                 summary ? h('span', { class: 'roster-summary', text: summary }) : null,
-                h('button', { type: 'button', class: 'btn btn-sm btn-outline-primary ms-auto', onclick: () => openPlayerModal(null) }, icon('bi-person-plus'), ' 新增玩家')),
+                h('span', { class: 'ms-auto d-flex gap-2' }, toggleAll,
+                    h('button', { type: 'button', class: 'btn btn-sm btn-outline-primary', onclick: () => openPlayerModal(null) }, icon('bi-person-plus'), ' 新增玩家'))),
             own.length ? h('div', { class: 'roster-group-title', text: '自己的帳號' }) : null,
             own.length ? h('ul', { class: 'roster-list' }, own) : null,
             h('div', { class: 'roster-group-title', text: '其他玩家' }),
