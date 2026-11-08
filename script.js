@@ -873,18 +873,41 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ---------------- Modal：調整和某位隊友的進度 ----------------
-    let progressRef = null;
+    let progressPairs = [];   // [{ accId, ref }]：每一列是「哪個帳號」和「哪位隊友」的那一段羈絆
+
+    // 名單某一列要列出哪些羈絆：
+    //  ・其他玩家 → 自己每個帳號和他
+    //  ・自己的帳號 → 其他帳號和它 (存在對方帳號底下)，加上它和名單上每位其他玩家
+    function progressPairsFor(ref) {
+        const pairs = data.accounts
+            .filter((a) => !(ref.type === 'account' && a.id === ref.id))
+            .map((a) => ({ accId: a.id, ref, label: a.name, group: '自己的帳號' }));
+        if (ref.type === 'account') {
+            for (const p of data.roster) {
+                pairs.push({ accId: ref.id, ref: { type: 'player', id: p.id }, label: p.name, group: '其他玩家' });
+            }
+        }
+        return pairs;
+    }
 
     function openProgressModal(ref) {
-        progressRef = ref;
         const t = today();
         const name = ref.type === 'account'
             ? (data.accounts.find((a) => a.id === ref.id) || {}).name
             : (data.roster.find((p) => p.id === ref.id) || {}).name;
         $('progressModalTitle').textContent = `和 ${name} 的羈絆進度`;
-        const accounts = data.accounts.filter((a) => !(ref.type === 'account' && a.id === ref.id));
-        $('progressRows').replaceChildren(...(accounts.length ? accounts.map((acc) => {
-            const found = L.findPair(acc, ref);
+        progressPairs = progressPairsFor(ref);
+        const rows = [];
+        let lastGroup = null;
+        const showGroups = ref.type === 'account' && progressPairs.some((p) => p.group === '其他玩家');
+        progressPairs.forEach((pair, i) => {
+            const acc = data.accounts.find((a) => a.id === pair.accId);
+            if (!acc) return;
+            if (showGroups && pair.group !== lastGroup) {
+                rows.push(h('div', { class: 'progress-group', text: pair.group }));
+                lastGroup = pair.group;
+            }
+            const found = L.findPair(acc, pair.ref);
             const e = found && found.entry;
             let status;
             if (!found) status = '還沒有紀錄';
@@ -895,49 +918,49 @@ document.addEventListener('DOMContentLoaded', () => {
             else status = '不在隊伍';
             const num = (cls, min, max, value, label) => h('input', {
                 type: 'number', inputmode: 'numeric', min, max, class: 'form-control form-control-sm ' + cls,
-                value: value, placeholder: '0', 'aria-label': `${acc.name} ${label}`,
+                value: value, placeholder: '0', 'aria-label': `${pair.label} ${label}`,
             });
-            return h('div', { class: 'progress-row', 'data-acc': acc.id },
-                h('div', { class: 'progress-who' }, h('strong', { text: acc.name }), h('span', { class: 'roster-meta', text: status })),
+            rows.push(h('div', { class: 'progress-row', 'data-pair': String(i) },
+                h('div', { class: 'progress-who' }, h('strong', { text: pair.label }), h('span', { class: 'roster-meta', text: status })),
                 h('label', { class: 'inline-field' }, '本輪已達成', num('p-cycle', 0, L.CYCLE_LENGTH - 1, e ? e.cycleCount : '', '本輪已達成次數'), `/ ${L.CYCLE_LENGTH} 次`),
                 h('label', { class: 'inline-field' }, '已完成', num('p-rounds', 0, 9999, e ? e.totalCycles : '', '已完成輪數'), '輪'),
                 h('label', { class: 'form-check-label d-inline-flex align-items-center gap-1' },
-                    h('input', { type: 'checkbox', class: 'form-check-input m-0 p-today', checked: !!(e && e.lastCompletedDate === t) }), '今天已羈完'));
-        }) : [h('p', { class: 'text-muted small', text: '需要先有其他帳號。' })]));
+                    h('input', { type: 'checkbox', class: 'form-check-input m-0 p-today', checked: !!(e && e.lastCompletedDate === t) }), '今天已羈完')));
+        });
+        $('progressRows').replaceChildren(...(rows.length ? rows : [h('p', { class: 'text-muted small', text: '需要先有其他帳號或名單玩家。' })]));
         modal('progressModal').show();
     }
 
     $('progressForm').addEventListener('submit', (ev) => {
         ev.preventDefault();
-        const ref = progressRef;
         const t = today();
         const changes = [];
         for (const row of $('progressRows').querySelectorAll('.progress-row')) {
-            const acc = data.accounts.find((a) => a.id === row.dataset.acc);
+            const pair = progressPairs[Number(row.dataset.pair)];
+            const acc = pair && data.accounts.find((a) => a.id === pair.accId);
             if (!acc) continue;
             const cycleRaw = row.querySelector('.p-cycle').value.trim();
             const roundsRaw = row.querySelector('.p-rounds').value.trim();
             const cycleCount = cycleRaw === '' ? 0 : L.parseIntInRange(cycleRaw, 0, L.CYCLE_LENGTH - 1);
             const totalCycles = roundsRaw === '' ? 0 : L.parseIntInRange(roundsRaw, 0, 9999);
             const completedToday = row.querySelector('.p-today').checked;
-            if (cycleCount === null) { showToast(`${acc.name}：次數請輸入 0–${L.CYCLE_LENGTH - 1}`, 'error'); return; }
-            if (totalCycles === null) { showToast(`${acc.name}：輪數請輸入 0 以上的整數`, 'error'); return; }
-            const found = L.findPair(acc, ref);
+            if (cycleCount === null) { showToast(`${pair.label}：次數請輸入 0–${L.CYCLE_LENGTH - 1}`, 'error'); return; }
+            if (totalCycles === null) { showToast(`${pair.label}：輪數請輸入 0 以上的整數`, 'error'); return; }
+            const found = L.findPair(acc, pair.ref);
             const e = found && found.entry;
             const same = e
                 ? e.cycleCount === cycleCount && e.totalCycles === totalCycles && (e.lastCompletedDate === t) === completedToday
                 : cycleCount === 0 && totalCycles === 0 && !completedToday;   // 沒紀錄又全空：不建立
-            if (!same) changes.push({ accId: acc.id, values: { cycleCount, totalCycles, completedToday } });
+            if (!same) changes.push({ accId: acc.id, ref: pair.ref, values: { cycleCount, totalCycles, completedToday } });
         }
         modal('progressModal').hide();
         if (changes.length === 0) return;
         commit(() => {
-            data.accounts = data.accounts.map((a) => {
-                const c = changes.find((x) => x.accId === a.id);
-                return c ? L.setPairProgress(a, ref, c.values, t) : a;
-            });
+            data.accounts = data.accounts.map((a) => changes
+                .filter((c) => c.accId === a.id)
+                .reduce((acc, c) => L.setPairProgress(acc, c.ref, c.values, t), a));
         });
-        showToast(`已更新 ${changes.length} 個帳號的進度`);
+        showToast(`已更新 ${changes.length} 段羈絆的進度`);
     });
 
     // ---------------- Modal：名單玩家 ----------------
