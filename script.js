@@ -406,6 +406,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const saveRosterOpen = () => store.set(ROSTER_OPEN_KEY, JSON.stringify([...rosterOpen]));
     const refKey = (ref) => ref.type + ':' + ref.id;
 
+    // 其他玩家的排序方式 (只記在這台瀏覽器)
+    const ROSTER_SORT_KEY = 'bond_roster_sort_v1';
+    const ROSTER_SORTS = [
+        ['added', '加入順序'],
+        ['idleFirst', '未羈絆優先'],
+        ['levelDesc', '等級高到低'],
+        ['levelAsc', '等級低到高'],
+        ['name', '名稱'],
+    ];
+    let rosterSort = ROSTER_SORTS.some(([k]) => k === store.get(ROSTER_SORT_KEY)) ? store.get(ROSTER_SORT_KEY) : 'added';
+
     // 隊友名單：自己的帳號 + 其他玩家。收合時只看摘要，點開才看和各帳號的羈絆
     function renderRoster() {
         const box = $('rosterSection');
@@ -431,8 +442,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const progressBtn = (ref) => h('button', {
             type: 'button', class: 'btn btn-sm btn-outline-primary', onclick: () => openProgressModal(ref),
         }, icon('bi-sliders'), ' 調整進度');
-        const row = (label, meta, ref, actions) => {
-            const list = relations(ref);
+        let toggleBtn = null;
+        const allRowsNow = () => [...box.querySelectorAll('.roster-row')];
+        // 手動展開 / 收合任何一列後，按鈕文字跟著目前狀態 (有任何一列開著 → 全部收合)
+        const syncToggle = () => { if (toggleBtn) toggleBtn.textContent = allRowsNow().some((r) => r.open) ? '全部收合' : '全部展開'; };
+        const row = (label, meta, ref, actions, list = relations(ref)) => {
             const key = refKey(ref);
             const el = h('details', { class: 'roster-row', open: rosterOpen.has(key) },
                 h('summary', { class: 'roster-summary-line' },
@@ -444,6 +458,7 @@ document.addEventListener('DOMContentLoaded', () => {
             el.addEventListener('toggle', () => {
                 if (el.open) rosterOpen.add(key); else rosterOpen.delete(key);
                 saveRosterOpen();
+                syncToggle();
             });
             return el;
         };
@@ -451,12 +466,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const own = data.accounts.length >= 2
             ? data.accounts.map((a) => row('👤 ' + a.name, `等級 ${a.level}`, { type: 'account', id: a.id }, [progressBtn({ type: 'account', id: a.id })]))
             : [];
-        const players = data.roster.map((p) => row('🌐 ' + p.name,
+        const playerRows = data.roster.map((p, i) => ({ p, i, list: relations({ type: 'player', id: p.id }) }));
+        const bySort = {
+            added: (x, y) => x.i - y.i,
+            idleFirst: (x, y) => (x.list.length === 0 ? 0 : 1) - (y.list.length === 0 ? 0 : 1) || x.i - y.i,
+            levelDesc: (x, y) => y.p.level - x.p.level || x.i - y.i,
+            levelAsc: (x, y) => x.p.level - y.p.level || x.i - y.i,
+            name: (x, y) => x.p.name.localeCompare(y.p.name, 'zh-Hant') || x.i - y.i,
+        }[rosterSort];
+        const players = playerRows.sort(bySort).map(({ p, list }) => row('🌐 ' + p.name,
             [`等級 ${p.level}`, p.social.handle || p.social.platform !== '其他' || p.social.customPlatform ? socialLabel(p.social) : '', p.note].filter(Boolean).join('・'),
             { type: 'player', id: p.id },
             [progressBtn({ type: 'player', id: p.id }),
                 h('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary', 'aria-label': `編輯 ${p.name}`, onclick: () => openPlayerModal(p.id) }, icon('bi-pencil'), ' 編輯'),
-                h('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', 'aria-label': `刪除 ${p.name}`, onclick: () => deletePlayer(p.id) }, icon('bi-trash'), ' 刪除')]));
+                h('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', 'aria-label': `刪除 ${p.name}`, onclick: () => deletePlayer(p.id) }, icon('bi-trash'), ' 刪除')], list));
         const allRows = [...own, ...players];
         const anyOpen = allRows.some((r) => r.open);
         const toggleAll = allRows.length ? h('button', {
@@ -464,11 +487,17 @@ document.addEventListener('DOMContentLoaded', () => {
             onclick: () => {
                 const keys = [...(data.accounts.length >= 2 ? data.accounts.map((a) => refKey({ type: 'account', id: a.id })) : []),
                     ...data.roster.map((p) => refKey({ type: 'player', id: p.id }))];
-                if (anyOpen) rosterOpen.clear(); else keys.forEach((k) => rosterOpen.add(k));
+                // 依按下當時的狀態決定，不是畫面建立時的狀態
+                if (allRowsNow().some((r) => r.open)) rosterOpen.clear(); else keys.forEach((k) => rosterOpen.add(k));
                 saveRosterOpen();
                 renderRoster();
             },
         }, anyOpen ? '全部收合' : '全部展開') : null;
+        toggleBtn = toggleAll;
+        const sortSelect = data.roster.length > 1 ? h('select', {
+            class: 'form-select form-select-sm roster-sort', 'aria-label': '其他玩家排序方式',
+            onchange: (ev) => { rosterSort = ev.target.value; store.set(ROSTER_SORT_KEY, rosterSort); renderRoster(); },
+        }, ROSTER_SORTS.map(([k, label]) => h('option', { value: k, text: label, selected: k === rosterSort }))) : null;
 
         // 隊伍裡的都是還沒羈完的 (羈完會自動退出)
         // 自己兩個帳號之間的羈絆兩邊都有一份，只算一次
@@ -487,7 +516,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     h('button', { type: 'button', class: 'btn btn-sm btn-outline-primary', onclick: () => openPlayerModal(null) }, icon('bi-person-plus'), ' 新增玩家'))),
             own.length ? h('div', { class: 'roster-group-title', text: '自己的帳號' }) : null,
             own.length ? h('ul', { class: 'roster-list' }, own) : null,
-            h('div', { class: 'roster-group-title', text: '其他玩家' }),
+            h('div', { class: 'roster-group-title roster-group-row' }, h('span', { text: '其他玩家' }), sortSelect),
             players.length ? h('ul', { class: 'roster-list' }, players)
                 : h('p', { class: 'text-muted small mb-0', text: '還沒有其他玩家。按「新增玩家」建立後，再到帳號底下「從名單選隊友」。' })));
     }
