@@ -169,9 +169,23 @@ body {
 .play-pick-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .play-chip { border: 1px solid #ddd; background: #fff; border-radius: 999px; padding: 4px 12px; font-size: .9rem; min-height: 36px; }
 .play-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.play-chip.own { border: 2px solid var(--acc, var(--accent)); color: var(--acc, var(--accent)); font-weight: 700; }
+.play-chip.own.on { background: var(--acc, var(--accent)); color: #fff; }
+.acc-pill { display: inline-block; background: var(--acc); color: #fff; font-weight: 700; border-radius: 999px; padding: 2px 12px; line-height: 1.6; }
+.acc-plus { color: #999; font-weight: 700; margin: 0 4px; }
+.acc-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--acc); margin-right: 6px; vertical-align: 1px; box-shadow: 0 0 0 2px #fff; }
+.play-next { background: #fff; border: 2px solid var(--accent); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; text-align: center; }
+.play-next-label { font-size: .85rem; font-weight: 700; color: var(--accent-dark); }
+.play-next-pills { font-size: 1.25rem; margin: 4px 0; }
+.play-next-pills .acc-pill { padding: 4px 16px; }
+.play-next-sub { font-size: .85rem; color: #777; }
+.play-steps li { margin: 4px 0; }
+.play-steps li.current { font-weight: 700; }
+.play-step-games { margin-left: 6px; }
+.play-step-now { margin-left: 6px; font-size: .75rem; background: var(--accent); color: #fff; border-radius: 6px; padding: 1px 6px; }
 .play-chip:disabled { opacity: .45; }
 .play-table { margin-top: 12px; font-size: .9rem; }
-.play-table th, .play-table td { white-space: nowrap; }
+.play-table th, .play-table td { white-space: nowrap; vertical-align: middle; }
 .play-plan { background: #fff7fa; border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
 .play-plan.done { color: var(--done); background: var(--done-light); font-weight: 700; }
 .play-plan-title { font-weight: 700; margin-bottom: 4px; }

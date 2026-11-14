@@ -544,6 +544,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let playNext = null;                              // 這一場要記錄的自己帳號 (使用者改過的話)；null = 照建議
     const MAX_PLAY_MEMBERS = L.PARTY_SIZE - 1;
 
+    // 自己的每個帳號一個固定顏色 (分頁、今天一起打都用同一個顏色，比較好認)
+    const ACCOUNT_COLORS = ['#5c6bc0', '#26a69a', '#ef6c00', '#8e24aa', '#1e88e5', '#6d4c41', '#c0ca33', '#d81b60'];
+    const accColor = (id) => ACCOUNT_COLORS[Math.max(0, data.accounts.findIndex((a) => a.id === id)) % ACCOUNT_COLORS.length];
+    const accPill = (id) => h('span', { class: 'acc-pill', style: `--acc:${accColor(id)}`, text: (data.accounts.find((a) => a.id === id) || {}).name || '?' });
+    const pillsJoined = (ids) => ids.flatMap((id, i) => (i ? [h('span', { class: 'acc-plus', text: '+' }), accPill(id)] : [accPill(id)]));
+
     function renderPlay() {
         const box = $('playSection');
         const members = L.rosterMembers(data.roster);
@@ -579,7 +585,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const accountPicker = h('div', { class: 'play-pick-row' }, data.accounts.map((a) => {
             const on = chosenAccounts.includes(a.id);
             return h('button', {
-                type: 'button', class: 'play-chip own' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false',
+                type: 'button', class: 'play-chip own' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false', style: `--acc:${accColor(a.id)}`,
                 onclick: () => {
                     const next = on ? chosenAccounts.filter((id) => id !== a.id) : [...chosenAccounts, a.id];
                     playAccounts = accIds.every((id) => next.includes(id)) ? null : next;
@@ -587,13 +593,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     playNext = null;
                     renderPlay();
                 },
-            }, `👤 ${a.name}`);
+            }, a.name);
         }));
 
         const head = h('div', { class: 'roster-head' }, h('h2', { class: 'section-title m-0' }, icon('bi-controller'), ' 今天一起打'));
         const pickers = [
             h('div', { class: 'play-label', text: `這幾場的其他玩家（最多 ${MAX_PLAY_MEMBERS} 個遊戲帳號）` }), memberPicker,
-            h('div', { class: 'play-label', text: '要羈絆的自己帳號' }), accountPicker,
+            h('div', { class: 'play-label', text: '參加排程的自己帳號（點一下排除 / 加回）' }), accountPicker,
         ];
         if (playMembers.length === 0 || chosenAccounts.length === 0) {
             box.replaceChildren(h('div', {}, head, ...pickers,
@@ -610,7 +616,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const grid = h('div', { class: 'table-responsive' }, h('table', { class: 'table table-sm play-table mb-2' },
             h('thead', {}, h('tr', {}, h('th', { text: '' }), playMembers.map((id) => h('th', { text: memberOf(id).name })))),
             h('tbody', {}, plan.rows.map((r) => h('tr', { class: r.full ? 'text-muted' : '' },
-                h('th', { scope: 'row' }, accName(r.accountId), r.full ? h('div', { class: 'small text-danger', text: '隊伍位子不夠' }) : null),
+                h('th', { scope: 'row' }, accPill(r.accountId), r.full ? h('div', { class: 'small text-danger', text: '隊伍位子不夠' }) : null),
                 r.cells.map((c) => h('td', { class: c.state === 'doneToday' ? 'text-success' : '', text: cellText(c) })))))));
 
         const fullNames = plan.rows.filter((r) => r.full).map((r) => accName(r.accountId));
@@ -623,12 +629,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (plan.total === 0) {
             planBlock = h('div', { class: 'play-plan done', text: '🎉 和這幾位今天都羈完了（或沒有可以排的帳號）' });
         } else {
+            const first = plan.steps[0];
             planBlock = h('div', { class: 'play-plan' },
-                h('div', { class: 'play-plan-title', text: `最少 ${plan.total} 場，每場帶 ${plan.slots} 個自己的帳號：` }),
-                h('ol', { class: 'play-steps' }, plan.steps.map((s) => h('li', {},
-                    `${s.accountIds.map(accName).join(' + ')}`,
-                    s.accountIds.length < plan.slots ? h('span', { class: 'text-muted', text: '（其他位子隨意）' }) : null,
-                    ` 打 ${s.games} 場`))));
+                // 最醒目：下一場帶誰
+                h('div', { class: 'play-next' },
+                    h('div', { class: 'play-next-label', text: '下一場帶' }),
+                    h('div', { class: 'play-next-pills' }, pillsJoined(first.accountIds)),
+                    h('div', { class: 'play-next-sub', text: (first.accountIds.length < plan.slots ? '其他位子隨意・' : '') + `這個組合還要打 ${first.games} 場` })),
+                h('div', { class: 'play-plan-title', text: `全部排程：最少 ${plan.total} 場（每場帶 ${plan.slots} 個自己的帳號）` }),
+                h('ol', { class: 'play-steps' }, plan.steps.map((s, i) => h('li', { class: i === 0 ? 'current' : '' },
+                    h('span', { class: 'play-step-pills' }, pillsJoined(s.accountIds)),
+                    h('span', { class: 'play-step-games', text: `× ${s.games} 場` }),
+                    i === 0 ? h('span', { class: 'play-step-now', text: '現在' }) : null))));
         }
 
         // 5. 記錄這一場：預設照建議的第一步，可以改
@@ -639,12 +651,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const row = plan.rows.find((r) => r.accountId === id);
             return h('button', {
                 type: 'button', class: 'play-chip own' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false',
-                disabled: (!on && next.length >= plan.slots) || (row && row.full),
+                disabled: (!on && next.length >= plan.slots) || (row && row.full), style: `--acc:${accColor(id)}`,
                 onclick: () => { playNext = on ? next.filter((x) => x !== id) : [...next, id]; renderPlay(); },
-            }, `👤 ${accName(id)}`);
+            }, accName(id));
         }));
         const recordBlock = plan.total === 0 ? null : h('div', { class: 'play-record' },
-            h('div', { class: 'play-label', text: '這一場帶了誰？' }), nextPicker,
+            h('div', { class: 'play-label', text: playNext ? '這一場實際帶了誰？（已改過，和建議不同）' : '這一場實際帶了誰？（預設照「下一場帶」）' }), nextPicker,
             h('button', {
                 type: 'button', class: 'btn btn-accent mt-2', disabled: next.length === 0,
                 onclick: () => recordPlay(next, playMembers),
@@ -685,7 +697,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 class: 'account-tab' + (a.id === currentAccountId ? ' active' : ''),
                 'aria-pressed': String(a.id === currentAccountId),
                 onclick: () => selectAccount(a.id),
-            }, `${a.name}（${a.level}）`)),
+            }, h('span', { class: 'acc-dot', style: `--acc:${accColor(a.id)}`, 'aria-hidden': 'true' }), `${a.name}（${a.level}）`)),
             h('button', { type: 'button', class: 'account-tab add', onclick: () => openAccountModal(null) }, icon('bi-plus-lg'), ' 新增帳號'),
         );
     }
