@@ -70,8 +70,16 @@ test('sanitizeData：不合法的值改回預設', () => {
 
 test('隊友名單也以 id 為單位合併', () => {
     const b = L.sanitizeData({ roster: [{ id: 'p1', name: '小明', level: 1400, createdAt: 1 }], accounts: [] });
-    const local = clone(b); local.roster[0].level = 1450;
-    const remote = clone(b); remote.roster.push({ id: 'p2', name: '小華', level: 1000, social: { platform: 'LINE', customPlatform: '', handle: '' }, note: '', createdAt: 2 });
+    const local = clone(b); local.roster[0].members[0].level = 1450;
+    const remote = clone(b); remote.roster.push({ id: 'person_p2', social: { platform: 'LINE', customPlatform: '', handle: '' }, note: '', createdAt: 2, members: [{ id: 'p2', name: '小華', level: 1000, createdAt: 2 }] });
     const { data } = L.mergeData(b, local, remote);
-    assert.deepEqual(data.roster.map((p) => [p.id, p.level]), [['p1', 1450], ['p2', 1000]]);
+    assert.deepEqual(data.roster.map((p) => [p.id, p.members[0].level]), [['person_p1', 1450], ['person_p2', 1000]]);
+});
+
+test('隊友名單：雲端合併時舊格式和新格式的同一位玩家不會重複', () => {
+    const oldFmt = { id: 'p1', name: '小明', level: 1400, social: { platform: 'LINE', customPlatform: '', handle: '' }, note: '', createdAt: 1 };
+    const newFmt = { id: 'person_p1', social: { platform: 'LINE', customPlatform: '', handle: '' }, note: '', createdAt: 1, members: [{ id: 'p1', name: '小明', level: 1450, createdAt: 1 }] };
+    const d = L.normalizeData({ settings: { staminaPerGame: 60 }, roster: [newFmt, oldFmt], accounts: [] }).data;
+    assert.equal(d.roster.length, 1);
+    assert.equal(d.roster[0].members.length, 1);
 });

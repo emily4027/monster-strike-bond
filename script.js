@@ -373,6 +373,7 @@ document.addEventListener('DOMContentLoaded', () => {
         $('todayLabel').textContent = lastRenderedDate;
         $('globalStaminaPerGame').value = data.settings.staminaPerGame;
         renderRoster();
+        renderPlay();
         renderTabs();
         renderAccount();
     }
@@ -446,14 +447,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const allRowsNow = () => [...box.querySelectorAll('.roster-row')];
         // 手動展開 / 收合任何一列後，按鈕文字跟著目前狀態 (有任何一列開著 → 全部收合)
         const syncToggle = () => { if (toggleBtn) toggleBtn.textContent = allRowsNow().some((r) => r.open) ? '全部收合' : '全部展開'; };
-        const row = (label, meta, ref, actions, list = relations(ref)) => {
+        const row = (label, meta, ref, actions, list = relations(ref), body = null) => {
             const key = refKey(ref);
             const el = h('details', { class: 'roster-row', open: rosterOpen.has(key) },
                 h('summary', { class: 'roster-summary-line' },
                     h('span', { class: 'roster-who' }, h('strong', { text: label }), meta ? h('span', { class: 'roster-meta', text: meta }) : null),
                     summaryOf(list)),
                 h('div', { class: 'roster-body' },
-                    h('div', { class: 'roster-status' }, relationItems(list)),
+                    body || h('div', { class: 'roster-status' }, relationItems(list)),
                     h('div', { class: 'roster-actions' }, actions)));
             el.addEventListener('toggle', () => {
                 if (el.open) rosterOpen.add(key); else rosterOpen.delete(key);
@@ -466,27 +467,39 @@ document.addEventListener('DOMContentLoaded', () => {
         const own = data.accounts.length >= 2
             ? data.accounts.map((a) => row('👤 ' + a.name, `等級 ${a.level}`, { type: 'account', id: a.id }, [progressBtn({ type: 'account', id: a.id })]))
             : [];
-        const playerRows = data.roster.map((p, i) => ({ p, i, list: relations({ type: 'player', id: p.id }) }));
+        // 其他玩家：一位玩家 (社群帳號) 一列，展開後每個遊戲帳號各自列出和我各帳號的羈絆
+        const playerRows = data.roster.map((p, i) => {
+            const members = p.members.map((m) => ({ m, list: relations({ type: 'player', id: m.id }) }));
+            return { p, i, members, list: members.flatMap((x) => x.list), maxLevel: Math.max(0, ...p.members.map((m) => m.level)), minLevel: Math.min(L.LEVEL_MAX, ...p.members.map((m) => m.level)) };
+        });
         const bySort = {
             added: (x, y) => x.i - y.i,
             idleFirst: (x, y) => (x.list.length === 0 ? 0 : 1) - (y.list.length === 0 ? 0 : 1) || x.i - y.i,
-            levelDesc: (x, y) => y.p.level - x.p.level || x.i - y.i,
-            levelAsc: (x, y) => x.p.level - y.p.level || x.i - y.i,
-            name: (x, y) => x.p.name.localeCompare(y.p.name, 'zh-Hant') || x.i - y.i,
+            levelDesc: (x, y) => y.maxLevel - x.maxLevel || x.i - y.i,
+            levelAsc: (x, y) => x.minLevel - y.minLevel || x.i - y.i,
+            name: (x, y) => L.playerName(x.p).localeCompare(L.playerName(y.p), 'zh-Hant') || x.i - y.i,
         }[rosterSort];
-        const players = playerRows.sort(bySort).map(({ p, list }) => row('🌐 ' + p.name,
-            [`等級 ${p.level}`, p.social.handle || p.social.platform !== '其他' || p.social.customPlatform ? socialLabel(p.social) : '', p.note].filter(Boolean).join('・'),
-            { type: 'player', id: p.id },
-            [progressBtn({ type: 'player', id: p.id }),
-                h('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary', 'aria-label': `編輯 ${p.name}`, onclick: () => openPlayerModal(p.id) }, icon('bi-pencil'), ' 編輯'),
-                h('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', 'aria-label': `刪除 ${p.name}`, onclick: () => deletePlayer(p.id) }, icon('bi-trash'), ' 刪除')], list));
+        const platformText = (social) => (social.platform === '其他' ? (social.customPlatform || '') : social.platform);
+        const players = playerRows.sort(bySort).map(({ p, members, list }) => {
+            const name = L.playerName(p);
+            const meta = [p.social.handle ? platformText(p.social) : '',
+                members.map(({ m }) => `${m.name} ${m.level}`).join('、'), p.note].filter(Boolean).join('・');
+            const body = h('div', { class: 'member-list' }, members.map(({ m, list: ml }) => h('div', { class: 'member-block' },
+                h('div', { class: 'member-head' },
+                    h('span', { class: 'member-name', text: `🎮 ${m.name}` }), h('span', { class: 'roster-meta', text: `等級 ${m.level}` }),
+                    progressBtn({ type: 'player', id: m.id })),
+                h('div', { class: 'roster-status' }, relationItems(ml)))));
+            return row('🌐 ' + name, meta, { type: 'person', id: p.id },
+                [h('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary', 'aria-label': `編輯 ${name}`, onclick: () => openPlayerModal(p.id) }, icon('bi-pencil'), ' 編輯'),
+                    h('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', 'aria-label': `刪除 ${name}`, onclick: () => deletePlayer(p.id) }, icon('bi-trash'), ' 刪除')], list, body);
+        });
         const allRows = [...own, ...players];
         const anyOpen = allRows.some((r) => r.open);
         const toggleAll = allRows.length ? h('button', {
             type: 'button', class: 'btn btn-sm btn-outline-secondary',
             onclick: () => {
                 const keys = [...(data.accounts.length >= 2 ? data.accounts.map((a) => refKey({ type: 'account', id: a.id })) : []),
-                    ...data.roster.map((p) => refKey({ type: 'player', id: p.id }))];
+                    ...data.roster.map((p) => refKey({ type: 'person', id: p.id }))];
                 // 依按下當時的狀態決定，不是畫面建立時的狀態
                 if (allRowsNow().some((r) => r.open)) rosterOpen.clear(); else keys.forEach((k) => rosterOpen.add(k));
                 saveRosterOpen();
@@ -519,6 +532,149 @@ document.addEventListener('DOMContentLoaded', () => {
             h('div', { class: 'roster-group-title roster-group-row' }, h('span', { text: '其他玩家' }), sortSelect),
             players.length ? h('ul', { class: 'roster-list' }, players)
                 : h('p', { class: 'text-muted small mb-0', text: '還沒有其他玩家。按「新增玩家」建立後，再到帳號底下「從名單選隊友」。' })));
+    }
+
+    // ---------------- 今天一起打：選好其他玩家的遊戲帳號，程式排出每場帶哪幾個自己的帳號 ----------------
+    // 選擇只記在這台瀏覽器 (今天要跟誰打是當下的事，不需要同步)
+    const PLAY_MEMBERS_KEY = 'bond_play_members_v1';
+    const PLAY_ACCOUNTS_KEY = 'bond_play_accounts_v1';
+    const readIds = (key) => { try { const v = JSON.parse(store.get(key) || 'null'); return Array.isArray(v) ? v : null; } catch (e) { return null; } };
+    let playMembers = readIds(PLAY_MEMBERS_KEY) || [];
+    let playAccounts = readIds(PLAY_ACCOUNTS_KEY);   // null = 全部帳號
+    let playNext = null;                              // 這一場要記錄的自己帳號 (使用者改過的話)；null = 照建議
+    const MAX_PLAY_MEMBERS = L.PARTY_SIZE - 1;
+
+    function renderPlay() {
+        const box = $('playSection');
+        const members = L.rosterMembers(data.roster);
+        playMembers = playMembers.filter((id) => members.some((x) => x.member.id === id));
+        const accIds = data.accounts.map((a) => a.id);
+        const chosenAccounts = (playAccounts || accIds).filter((id) => accIds.includes(id));
+        if (members.length === 0 || data.accounts.length === 0) {
+            box.replaceChildren(h('div', {},
+                h('h2', { class: 'section-title m-0' }, icon('bi-controller'), ' 今天一起打'),
+                h('p', { class: 'text-muted small mb-0 mt-2', text: '先新增自己的帳號和名單上的其他玩家，就能在這裡選今天要一起打的人，程式會排出每場帶哪幾個帳號最省場數。' })));
+            return;
+        }
+        const t = today();
+
+        // 1. 選其他玩家的遊戲帳號 (最多 3 個：一場 4 人，至少要留 1 個位子給自己)
+        const memberPicker = h('div', { class: 'play-pick' }, data.roster.map((p) => h('div', { class: 'play-person' },
+            h('span', { class: 'play-person-name', text: L.playerName(p) }),
+            p.members.map((m) => {
+                const on = playMembers.includes(m.id);
+                return h('button', {
+                    type: 'button', class: 'play-chip' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false',
+                    disabled: !on && playMembers.length >= MAX_PLAY_MEMBERS,
+                    onclick: () => {
+                        playMembers = on ? playMembers.filter((id) => id !== m.id) : [...playMembers, m.id];
+                        store.set(PLAY_MEMBERS_KEY, JSON.stringify(playMembers));
+                        playNext = null;
+                        renderPlay();
+                    },
+                }, `${m.name}・${m.level}`);
+            }))));
+
+        // 2. 要一起羈絆的自己帳號
+        const accountPicker = h('div', { class: 'play-pick-row' }, data.accounts.map((a) => {
+            const on = chosenAccounts.includes(a.id);
+            return h('button', {
+                type: 'button', class: 'play-chip own' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false',
+                onclick: () => {
+                    const next = on ? chosenAccounts.filter((id) => id !== a.id) : [...chosenAccounts, a.id];
+                    playAccounts = accIds.every((id) => next.includes(id)) ? null : next;
+                    store.set(PLAY_ACCOUNTS_KEY, playAccounts ? JSON.stringify(playAccounts) : '');
+                    playNext = null;
+                    renderPlay();
+                },
+            }, `👤 ${a.name}`);
+        }));
+
+        const head = h('div', { class: 'roster-head' }, h('h2', { class: 'section-title m-0' }, icon('bi-controller'), ' 今天一起打'));
+        const pickers = [
+            h('div', { class: 'play-label', text: `這幾場的其他玩家（最多 ${MAX_PLAY_MEMBERS} 個遊戲帳號）` }), memberPicker,
+            h('div', { class: 'play-label', text: '要羈絆的自己帳號' }), accountPicker,
+        ];
+        if (playMembers.length === 0 || chosenAccounts.length === 0) {
+            box.replaceChildren(h('div', {}, head, ...pickers,
+                h('p', { class: 'text-muted small mb-0 mt-2', text: '選好其他玩家的遊戲帳號，就會算出每場帶哪幾個自己的帳號、總共要打幾場。' })));
+            return;
+        }
+
+        const plan = L.planPlayTogether(data, chosenAccounts, playMembers, t);
+        const memberOf = (id) => L.findMember(data.roster, id).member;
+        const accName = (id) => (data.accounts.find((a) => a.id === id) || {}).name;
+
+        // 3. 每個帳號 × 每個遊戲帳號還差幾場
+        const cellText = (c) => (c.state === 'doneToday' ? '✅ 已羈完' : c.state === 'notInTeam' ? `不在隊伍・約 ${c.need} 場` : `還差 ${c.need} 場`);
+        const grid = h('div', { class: 'table-responsive' }, h('table', { class: 'table table-sm play-table mb-2' },
+            h('thead', {}, h('tr', {}, h('th', { text: '' }), playMembers.map((id) => h('th', { text: memberOf(id).name })))),
+            h('tbody', {}, plan.rows.map((r) => h('tr', { class: r.full ? 'text-muted' : '' },
+                h('th', { scope: 'row' }, accName(r.accountId), r.full ? h('div', { class: 'small text-danger', text: '隊伍位子不夠' }) : null),
+                r.cells.map((c) => h('td', { class: c.state === 'doneToday' ? 'text-success' : '', text: cellText(c) })))))));
+
+        const fullNames = plan.rows.filter((r) => r.full).map((r) => accName(r.accountId));
+        const notes = [];
+        if (fullNames.length) notes.push(`${fullNames.join('、')} 的隊伍位子不夠（最多 ${L.MAX_BONDS_PER_ACCOUNT} 位），先結束一位才能一起排。`);
+        if (plan.rows.some((r) => !r.full && r.toAdd > 0)) notes.push('「不在隊伍」的會在記錄第一場時自動加進隊伍；以前羈絆過的會接續次數。');
+
+        // 4. 排程：一步一步
+        let planBlock;
+        if (plan.total === 0) {
+            planBlock = h('div', { class: 'play-plan done', text: '🎉 和這幾位今天都羈完了（或沒有可以排的帳號）' });
+        } else {
+            planBlock = h('div', { class: 'play-plan' },
+                h('div', { class: 'play-plan-title', text: `最少 ${plan.total} 場，每場帶 ${plan.slots} 個自己的帳號：` }),
+                h('ol', { class: 'play-steps' }, plan.steps.map((s) => h('li', {},
+                    `${s.accountIds.map(accName).join(' + ')}`,
+                    s.accountIds.length < plan.slots ? h('span', { class: 'text-muted', text: '（其他位子隨意）' }) : null,
+                    ` 打 ${s.games} 場`))));
+        }
+
+        // 5. 記錄這一場：預設照建議的第一步，可以改
+        const suggested = plan.steps.length ? plan.steps[0].accountIds : [];
+        const next = (playNext || suggested).filter((id) => chosenAccounts.includes(id));
+        const nextPicker = h('div', { class: 'play-pick-row' }, chosenAccounts.map((id) => {
+            const on = next.includes(id);
+            const row = plan.rows.find((r) => r.accountId === id);
+            return h('button', {
+                type: 'button', class: 'play-chip own' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false',
+                disabled: (!on && next.length >= plan.slots) || (row && row.full),
+                onclick: () => { playNext = on ? next.filter((x) => x !== id) : [...next, id]; renderPlay(); },
+            }, `👤 ${accName(id)}`);
+        }));
+        const recordBlock = plan.total === 0 ? null : h('div', { class: 'play-record' },
+            h('div', { class: 'play-label', text: '這一場帶了誰？' }), nextPicker,
+            h('button', {
+                type: 'button', class: 'btn btn-accent mt-2', disabled: next.length === 0,
+                onclick: () => recordPlay(next, playMembers),
+            }, icon('bi-plus-lg'), ` 打完這場（${next.length * playMembers.length} 段各 +1）`));
+
+        box.replaceChildren(h('div', {}, head, ...pickers, grid,
+            notes.map((n) => h('div', { class: 'form-text', text: n })),
+            planBlock, recordBlock));
+    }
+
+    function recordPlay(accountIds, memberIds) {
+        const t = today();
+        let r;
+        commit(() => {
+            r = L.recordPlayTogether(data, accountIds, memberIds, t);
+            data = r.data;
+        });
+        playNext = null;
+        renderPlay();
+        const memberName = (id) => ((L.findMember(data.roster, id) || {}).member || {}).name;
+        const accName = (id) => (data.accounts.find((a) => a.id === id) || {}).name;
+        const parts = [];
+        if (r.completions.length) parts.push('達成：' + r.completions.map((c) => `${accName(c.accountId)}×${memberName(c.memberId)} 第 ${c.completion.number} 次 ${c.completion.reward.name}`).join('；'));
+        const full = r.skipped.filter((s) => s.reason === 'full');
+        if (full.length) parts.push('隊伍已滿沒加進去：' + full.map((s) => `${accName(s.accountId)}×${memberName(s.memberId)}`).join('、'));
+        if (r.completions.length === 1 && !full.length) {
+            const c = r.completions[0];
+            showToast(parts[0], 'reward', { label: '還沒滿', run: () => undoCompletion(c.accountId, c.bondId) });
+        } else if (parts.length) showToast(parts.join('。') + (r.completions.length ? '（還沒滿的話，到帳號底下「今天已羈完」按「還沒滿」）' : ''), r.completions.length ? 'reward' : 'error');
+        else showToast(`已記錄一場，${r.added} 段羈絆各 +1 場`);
     }
 
     function renderTabs() {
@@ -601,7 +757,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         levelInput.addEventListener('change', () => changePartnerLevel(acc.id, bond.id, levelInput));
         const linked = !!bond.partnerAccountId;
-        const player = bond.partnerPlayerId ? data.roster.find((p) => p.id === bond.partnerPlayerId) : null;
+        const found = bond.partnerPlayerId ? L.findMember(data.roster, bond.partnerPlayerId) : null;
+        const player = found ? found.player : null;
         // 自己的帳號：等級跟著那個帳號，在這裡不能改；可以點名稱切到那個帳號
         const levelField = linked
             ? h('span', { text: `隊友等級 ${bond.partnerLevel}（跟著帳號）` })
@@ -792,8 +949,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (level === null) { showToast(`等級請輸入 ${L.LEVEL_MIN}–${L.LEVEL_MAX} 的整數`, 'error'); input.value = b.partnerLevel; return; }
             if (level === b.partnerLevel) return;
             // 名單玩家：改的是名單上的等級，所有和他羈絆的帳號一起更新
-            const p = b.partnerPlayerId && data.roster.find((x) => x.id === b.partnerPlayerId);
-            commit(() => { if (p) p.level = level; else replaceBond(acc, { ...b, partnerLevel: level }); });
+            const x = b.partnerPlayerId && L.findMember(data.roster, b.partnerPlayerId);
+            commit(() => { if (x) x.member.level = level; else replaceBond(acc, { ...b, partnerLevel: level }); });
         });
     }
 
@@ -872,7 +1029,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (acc.bonds.length >= L.MAX_BONDS_PER_ACCOUNT) { showToast('一個帳號最多 3 位隊友', 'error'); return; }
         const candidates = [
             ...data.accounts.filter((a) => a.id !== acc.id).map((a) => ({ ref: { type: 'account', id: a.id }, label: '👤 ' + a.name, meta: `自己的帳號・等級 ${a.level}` })),
-            ...data.roster.map((p) => ({ ref: { type: 'player', id: p.id }, label: '🌐 ' + p.name, meta: `等級 ${p.level}` })),
+            ...L.rosterMembers(data.roster).map(({ player, member }) => ({ ref: { type: 'player', id: member.id }, label: '🎮 ' + member.name, meta: `${L.playerName(player)}・等級 ${member.level}` })),
         ];
         const items = candidates.map(({ ref, label, meta }) => {
             const taken = acc.bonds.some((b) => L.sameRef(b, ref));
@@ -934,8 +1091,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 : { accId: a.id, ref })
             ).map((p) => ({ ...p, label: (data.accounts.find((a) => a.id === (p.accId === ref.id ? p.ref.id : p.accId)) || {}).name, group: '自己的帳號' }));
         if (ref.type === 'account') {
-            for (const p of data.roster) {
-                pairs.push({ accId: ref.id, ref: { type: 'player', id: p.id }, label: p.name, group: '其他玩家' });
+            for (const { player, member } of L.rosterMembers(data.roster)) {
+                pairs.push({ accId: ref.id, ref: { type: 'player', id: member.id }, label: `${member.name}（${L.playerName(player)}）`, group: '其他玩家' });
             }
         }
         return pairs;
@@ -959,7 +1116,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const t = today();
         const name = ref.type === 'account'
             ? (data.accounts.find((a) => a.id === ref.id) || {}).name
-            : (data.roster.find((p) => p.id === ref.id) || {}).name;
+            : ((L.findMember(data.roster, ref.id) || {}).member || {}).name;
         $('progressModalTitle').textContent = `和 ${name} 的羈絆進度`;
         progressPairs = progressPairsFor(ref);
         const rows = [];
@@ -1028,7 +1185,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast(`已更新 ${changes.length} 段羈絆的進度`);
     });
 
-    // ---------------- Modal：名單玩家 ----------------
+    // ---------------- Modal：名單玩家 (社群帳號 + 好幾個遊戲帳號) ----------------
     let editingPlayerId = null;
     let pickAfterCreateFor = null;   // 從「選隊友」那邊新增時，建立後直接加進這個帳號
 
@@ -1036,60 +1193,108 @@ document.addEventListener('DOMContentLoaded', () => {
     const syncCustomPlatform = () => { $('partnerCustomPlatform').hidden = $('partnerPlatform').value !== '其他'; };
     $('partnerPlatform').addEventListener('change', syncCustomPlatform);
 
+    // 一列遊戲帳號：名稱、等級、移除。data-id 是既有遊戲帳號的 id (新增的沒有)
+    function memberRow(m = null) {
+        const row = h('div', { class: 'member-row', 'data-id': m ? m.id : null },
+            h('input', { type: 'text', class: 'form-control form-control-sm m-name', maxlength: 40, placeholder: '遊戲名稱', value: m ? m.name : '', 'aria-label': '遊戲名稱' }),
+            h('input', { type: 'number', inputmode: 'numeric', min: L.LEVEL_MIN, max: L.LEVEL_MAX, class: 'form-control form-control-sm m-level', placeholder: '等級', value: m ? m.level : '', 'aria-label': '等級' }),
+            h('button', {
+                type: 'button', class: 'btn btn-sm btn-outline-danger icon-btn', title: '移除這個遊戲帳號', 'aria-label': '移除這個遊戲帳號',
+                onclick: () => { row.remove(); if (!$('memberRows').children.length) $('memberRows').append(memberRow()); },
+            }, icon('bi-x-lg')));
+        return row;
+    }
+    $('addMemberRow').addEventListener('click', () => {
+        const row = memberRow();
+        $('memberRows').append(row);
+        row.querySelector('.m-name').focus();
+    });
+
     function openPlayerModal(playerId, pickForAccountId = null) {
         editingPlayerId = playerId;
         pickAfterCreateFor = playerId ? null : pickForAccountId;
         const p = playerId ? data.roster.find((x) => x.id === playerId) : null;
         $('playerModalTitle').textContent = p ? '編輯玩家' : (pickForAccountId ? '新增玩家並加入隊友' : '新增玩家到名單');
-        $('partnerName').value = p ? p.name : '';
         $('partnerPlatform').value = p ? p.social.platform : 'LINE';
         $('partnerCustomPlatform').value = p ? (p.social.customPlatform || '') : '';
         $('partnerHandle').value = p ? p.social.handle : '';
-        $('partnerLevel').value = p ? p.level : '';
         $('playerNote').value = p ? p.note : '';
+        $('memberRows').replaceChildren(...(p && p.members.length ? p.members.map((m) => memberRow(m)) : [memberRow()]));
         syncCustomPlatform();
         modal('playerModal').show();
     }
 
+    // 把某些遊戲帳號的羈絆結束 (進度留在歷史)
+    function endBondsWithMembers(memberIds) {
+        data.accounts.forEach((acc) => {
+            const ending = acc.bonds.filter((b) => memberIds.includes(b.partnerPlayerId));
+            acc.bonds = acc.bonds.filter((b) => !memberIds.includes(b.partnerPlayerId));
+            acc.history.unshift(...ending.map((b) => L.endBond(b, today())));
+        });
+    }
+
     $('playerForm').addEventListener('submit', (ev) => {
         ev.preventDefault();
-        const name = $('partnerName').value.trim();
-        const level = L.parseLevel($('partnerLevel').value);
-        if (!name) { showToast('請輸入玩家遊戲名稱', 'error'); return; }
-        if (level === null) { showToast(`等級請輸入 ${L.LEVEL_MIN}–${L.LEVEL_MAX} 的整數`, 'error'); return; }
         const social = {
             platform: $('partnerPlatform').value,
             customPlatform: $('partnerPlatform').value === '其他' ? $('partnerCustomPlatform').value.trim() : '',
             handle: $('partnerHandle').value.trim(),
         };
-        const note = $('playerNote').value.trim();
+        const rows = [...$('memberRows').querySelectorAll('.member-row')]
+            .map((r) => ({ id: r.dataset.id || null, name: r.querySelector('.m-name').value.trim(), levelRaw: r.querySelector('.m-level').value }))
+            .filter((r) => r.name || r.levelRaw.trim());
+        if (rows.length === 0) { showToast('至少要有一個遊戲帳號', 'error'); return; }
+        for (const r of rows) {
+            if (!r.name) { showToast('遊戲帳號要填名稱', 'error'); return; }
+            r.level = L.parseLevel(r.levelRaw);
+            if (r.level === null) { showToast(`${r.name}：等級請輸入 ${L.LEVEL_MIN}–${L.LEVEL_MAX} 的整數`, 'error'); return; }
+        }
         const existing = editingPlayerId && data.roster.find((x) => x.id === editingPlayerId);
+        // 同一個社群帳號已經在名單上 → 不重複建立
+        const key = L.socialKey(social);
+        const dup = key && data.roster.find((x) => x !== existing && L.socialKey(x.social) === key);
+        if (dup) { showToast(`名單上已經有 ${L.playerName(dup)}，請到那位玩家的「編輯」新增遊戲帳號`, 'error'); return; }
+        const removed = existing ? existing.members.filter((m) => !rows.some((r) => r.id === m.id)) : [];
+        const removedBonded = removed.filter((m) => partnerBonds({ type: 'player', id: m.id }).length);
+        if (removedBonded.length && !confirm(`移除遊戲帳號「${removedBonded.map((m) => m.name).join('、')}」？\n和它們羈絆中的帳號會結束羈絆，次數留在歷史紀錄。`)) return;
+        const note = $('playerNote').value.trim();
         let created = null;
         commit(() => {
-            if (existing) Object.assign(existing, { name, social, level, note });
-            else { created = L.makePlayer({ name, social, level, note }); data.roster.push(created); }
+            if (existing) {
+                endBondsWithMembers(removed.map((m) => m.id));
+                existing.social = social;
+                existing.note = note;
+                existing.members = rows.map((r) => {
+                    const old = r.id && existing.members.find((m) => m.id === r.id);
+                    return old ? { ...old, name: r.name, level: r.level } : L.makeMember({ name: r.name, level: r.level });
+                });
+            } else {
+                created = L.makePlayer({ social, note, members: rows.map((r) => ({ name: r.name, level: r.level })) });
+                data.roster.push(created);
+            }
         });
         modal('playerModal').hide();
-        if (created && pickAfterCreateFor) pickPartner(pickAfterCreateFor, { type: 'player', id: created.id });
-        else showToast(existing ? `已更新 ${name}` : `已把 ${name} 加入名單`);
+        const name = L.playerName(existing || created);
+        if (created && pickAfterCreateFor) {
+            // 只有一個遊戲帳號 → 直接加入；有好幾個 → 回到選隊友讓使用者挑
+            if (created.members.length === 1) pickPartner(pickAfterCreateFor, { type: 'player', id: created.members[0].id });
+            else { showToast(`已把 ${name} 加入名單，請選要羈絆的遊戲帳號`); openPickModal(); }
+        } else showToast(existing ? `已更新 ${name}` : `已把 ${name} 加入名單`);
     });
 
-    // 從名單刪除：和他羈絆中的帳號先結束羈絆 (進度留在歷史)
+    // 從名單刪除：和他各遊戲帳號羈絆中的帳號先結束羈絆 (進度留在歷史)
     function deletePlayer(playerId) {
         const p = data.roster.find((x) => x.id === playerId);
         if (!p) return;
-        const bondedWith = partnerBonds({ type: 'player', id: playerId }).map((x) => x.acc.name);
-        if (!confirm(`從名單刪除「${p.name}」？` +
+        const ids = p.members.map((m) => m.id);
+        const bondedWith = [...new Set(ids.flatMap((id) => partnerBonds({ type: 'player', id }).map((x) => x.acc.name)))];
+        if (!confirm(`從名單刪除「${L.playerName(p)}」和他的 ${p.members.length} 個遊戲帳號？` +
             (bondedWith.length ? `\n\n${bondedWith.join('、')} 和他的羈絆會結束，次數留在歷史紀錄。` : ''))) return;
         commit(() => {
-            data.accounts.forEach((acc) => {
-                const ending = acc.bonds.filter((b) => b.partnerPlayerId === playerId);
-                acc.bonds = acc.bonds.filter((b) => b.partnerPlayerId !== playerId);
-                acc.history.unshift(...ending.map((b) => L.endBond(b, today())));
-            });
+            endBondsWithMembers(ids);
             data.roster = data.roster.filter((x) => x.id !== playerId);
         });
-        showToast(`已從名單刪除 ${p.name}`, 'info');
+        showToast(`已從名單刪除 ${L.playerName(p)}`, 'info');
     }
 
     // ---------------- Modal：修改次數 ----------------

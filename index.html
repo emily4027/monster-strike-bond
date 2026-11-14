@@ -39,6 +39,7 @@
 
         <!-- 隊友名單 -->
         <section id="rosterSection" class="section-card mb-3"></section>
+        <section id="playSection" class="section-card mb-3"></section>
 
         <!-- 帳號切換 -->
         <nav class="account-tabs" id="accountTabs" aria-label="帳號"></nav>
@@ -161,18 +162,17 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
                 </div>
                 <div class="modal-body">
-                    <label for="partnerName" class="form-label">遊戲名稱</label>
-                    <input type="text" class="form-control mb-3" id="partnerName" maxlength="40">
-
-                    <label class="form-label" for="partnerPlatform">社群帳號</label>
+                    <label class="form-label" for="partnerHandle">社群帳號</label>
                     <div class="input-group mb-2">
-                        <select class="form-select social-select" id="partnerPlatform"></select>
-                        <input type="text" class="form-control" id="partnerHandle" maxlength="60" placeholder="帳號 / ID（選填）">
+                        <select class="form-select social-select" id="partnerPlatform" aria-label="社群平台"></select>
+                        <input type="text" class="form-control" id="partnerHandle" maxlength="60" placeholder="帳號名稱 / ID">
                     </div>
-                    <input type="text" class="form-control mb-3" id="partnerCustomPlatform" maxlength="20" placeholder="平台名稱（例如：Threads）" hidden>
+                    <input type="text" class="form-control mb-2" id="partnerCustomPlatform" maxlength="20" placeholder="平台名稱（例如：Threads）" hidden>
+                    <div class="form-text mb-3">同一個社群帳號就是同一位玩家；他的每個遊戲帳號都和你的帳號各自羈絆。</div>
 
-                    <label for="partnerLevel" class="form-label">等級</label>
-                    <input type="number" inputmode="numeric" min="1" class="form-control mb-3" id="partnerLevel">
+                    <div class="form-label">遊戲帳號</div>
+                    <div id="memberRows" class="member-rows mb-2"></div>
+                    <button type="button" class="btn btn-sm btn-outline-primary mb-3" id="addMemberRow"><i class="bi bi-plus-lg" aria-hidden="true"></i> 新增遊戲帳號</button>
 
                     <label for="playerNote" class="form-label">備註（選填）</label>
                     <input type="text" class="form-control" id="playerNote" maxlength="100">

@@ -149,6 +149,34 @@ body {
 }
 .roster-chip.done { background: var(--done-light); color: var(--done); }
 .roster-chip.idle { background: #eee; color: #888; }
+
+/* 其他玩家：一位玩家底下的遊戲帳號 */
+.member-list { display: flex; flex-direction: column; gap: 8px; }
+.member-block { background: #fff; border-radius: 10px; padding: 8px 10px; }
+.member-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.member-head .btn { margin-left: auto; }
+.member-name { font-weight: 700; }
+.member-rows { display: flex; flex-direction: column; gap: 6px; }
+.member-row { display: flex; gap: 6px; align-items: center; }
+.member-row .m-name { flex: 1 1 auto; min-width: 0; }
+.member-row .m-level { flex: 0 0 96px; }
+
+/* 今天一起打 */
+.play-label { font-size: .85rem; color: #777; font-weight: 700; margin: 12px 0 6px; }
+.play-pick { display: flex; flex-direction: column; gap: 6px; }
+.play-person { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.play-person-name { font-size: .85rem; font-weight: 700; min-width: 5em; }
+.play-pick-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.play-chip { border: 1px solid #ddd; background: #fff; border-radius: 999px; padding: 4px 12px; font-size: .9rem; min-height: 36px; }
+.play-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.play-chip:disabled { opacity: .45; }
+.play-table { margin-top: 12px; font-size: .9rem; }
+.play-table th, .play-table td { white-space: nowrap; }
+.play-plan { background: #fff7fa; border-radius: 10px; padding: 10px 12px; margin-top: 8px; }
+.play-plan.done { color: var(--done); background: var(--done-light); font-weight: 700; }
+.play-plan-title { font-weight: 700; margin-bottom: 4px; }
+.play-steps { margin: 0; padding-left: 1.4em; }
+.play-record { margin-top: 4px; }
 .pick-item:disabled { opacity: 0.6; }
 .progress-rows { display: flex; flex-direction: column; gap: 10px; }
 .progress-row {

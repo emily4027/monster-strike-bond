@@ -272,10 +272,31 @@
         return { id: newId('acc_'), name, level, createdAt: now, bonds: [], history: [] };
     }
 
-    // 隊友名單裡的其他玩家
-    function makePlayer({ name, social, level, note }, now = Date.now()) {
-        return { id: newId('p_'), name, social: social || { platform: 'LINE', customPlatform: '', handle: '' }, level, note: note || '', createdAt: now };
+    // 隊友名單裡的其他玩家：以社群帳號為主，底下可以有好幾個遊戲帳號 (members)
+    //   羈絆算在「我的帳號 × 他的某個遊戲帳號」，bond.partnerPlayerId 存的是遊戲帳號的 id
+    function makeMember({ name, level }, now = Date.now()) {
+        return { id: newId('p_'), name, level, createdAt: now };
     }
+
+    function makePlayer({ social, note, members }, now = Date.now()) {
+        return {
+            id: newId('person_'),
+            social: social || { platform: 'LINE', customPlatform: '', handle: '' },
+            note: note || '',
+            createdAt: now,
+            members: (members || []).map((m, i) => (m.id ? m : makeMember(m, now + i))),
+        };
+    }
+
+    // 玩家顯示的名稱：社群帳號名稱，沒填就用第一個遊戲帳號
+    const playerName = (p) => (p.social && p.social.handle) || (p.members[0] && p.members[0].name) || '未命名';
+
+    // 名單裡所有遊戲帳號：[{ player, member }]
+    const rosterMembers = (roster) => (roster || []).flatMap((player) => player.members.map((member) => ({ player, member })));
+    const findMember = (roster, memberId) => rosterMembers(roster).find((x) => x.member.id === memberId) || null;
+
+    // 同一個社群帳號 (平台 + 帳號名稱都有填且相同) = 同一位玩家
+    const socialKey = (social) => (social && social.handle ? [social.platform, social.platform === '其他' ? social.customPlatform : '', social.handle.trim().toLowerCase()].join('|') : null);
 
     // 舊資料轉換用：同名同社群帳號 → 同一個固定 id (兩台裝置各自轉換也會得到同一筆)
     function legacyPlayerId(name, social) {
@@ -405,16 +426,56 @@
         };
     }
 
-    function sanitizePlayer(raw) {
+    function sanitizeMember(raw) {
         if (!isObj(raw) || typeof raw.id !== 'string' || !raw.id) return null;
         return {
             id: raw.id,
             name: str(raw.name) || '未命名',
-            social: sanitizeSocial(raw.social),
             level: intOr(raw.level, LEVEL_MIN, LEVEL_MAX, LEVEL_MIN),
-            note: str(raw.note, 300),
             createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : 0,
         };
+    }
+
+    // 舊版名單 (一位玩家 = 一個遊戲帳號) 自動轉成「玩家 + 一個遊戲帳號」，遊戲帳號沿用舊 id，羈絆不用改
+    function sanitizePlayer(raw) {
+        if (!isObj(raw) || typeof raw.id !== 'string' || !raw.id) return null;
+        const createdAt = Number.isFinite(raw.createdAt) ? raw.createdAt : 0;
+        if (!Array.isArray(raw.members)) {
+            const m = sanitizeMember(raw);
+            return { id: 'person_' + raw.id, social: sanitizeSocial(raw.social), note: str(raw.note, 300), createdAt, members: m ? [m] : [] };
+        }
+        return {
+            id: raw.id,
+            social: sanitizeSocial(raw.social),
+            note: str(raw.note, 300),
+            createdAt,
+            members: raw.members.map(sanitizeMember).filter(Boolean),
+        };
+    }
+
+    // 同一個社群帳號的玩家合併成一位 (遊戲帳號合在一起，備註接起來)
+    function mergeSamePlayers(roster) {
+        const out = [];
+        const byKey = new Map();
+        const byId = new Map();
+        const seenMembers = new Set();
+        [...roster].sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0) || String(x.id).localeCompare(String(y.id))).forEach((p) => {
+            // 同一個遊戲帳號只能在一位玩家底下 (雲端合併時舊格式、新格式可能同時出現)
+            p = { ...p, members: p.members.filter((m) => !seenMembers.has(m.id)) };
+            p.members.forEach((m) => seenMembers.add(m.id));
+            const key = socialKey(p.social);
+            const into = byId.get(p.id) || (key && byKey.get(key));
+            if (!into) {
+                if (p.members.length === 0) return;
+                out.push(p);
+                byId.set(p.id, p);
+                if (key) byKey.set(key, p);
+                return;
+            }
+            p.members.forEach((m) => { if (!into.members.some((x) => x.id === m.id)) into.members.push(m); });
+            if (p.note && !into.note.includes(p.note)) into.note = [into.note, p.note].filter(Boolean).join('／').slice(0, 300);
+        });
+        return out;
     }
 
     function sanitizeBond(raw) {
@@ -464,7 +525,7 @@
         const data = emptyData();
         if (!isObj(raw)) return data;
         if (isObj(raw.settings)) data.settings.staminaPerGame = intOr(raw.settings.staminaPerGame, 1, STAMINA_PER_GAME_MAX, DEFAULT_STAMINA_PER_GAME);
-        data.roster = (Array.isArray(raw.roster) ? raw.roster : []).map(sanitizePlayer).filter(Boolean);
+        data.roster = mergeSamePlayers((Array.isArray(raw.roster) ? raw.roster : []).map(sanitizePlayer).filter(Boolean));
         data.accounts = (Array.isArray(raw.accounts) ? raw.accounts : []).map(sanitizeAccount).filter(Boolean);
         return data;
     }
@@ -479,15 +540,24 @@
     function normalizeData(data, today = null) {
         const d = JSON.parse(JSON.stringify(data));
         if (!Array.isArray(d.roster)) d.roster = [];
+        // 舊版名單 (沒有 members) 先轉成新格式
+        if (d.roster.some((p) => !Array.isArray(p.members))) d.roster = mergeSamePlayers(d.roster.map((p) => (Array.isArray(p.members) ? p : sanitizePlayer(p))).filter(Boolean));
         const byId = new Map(d.accounts.map((a) => [a.id, a]));
-        const players = new Map(d.roster.map((p) => [p.id, p]));
+        const players = new Map(rosterMembers(d.roster).map((x) => [x.member.id, x]));
         let cleared = 0;
+        // 羈絆的隊友不在名單裡 → 補進名單 (同社群帳號的玩家底下加一個遊戲帳號，否則新增一位玩家)
         const toRosterPlayer = (b) => {
             const id = legacyPlayerId(b.partnerGameName, b.partnerSocial);
             if (!players.has(id)) {
-                const p = { id, name: b.partnerGameName || '未命名', social: { ...b.partnerSocial }, level: b.partnerLevel || LEVEL_MIN, note: b.note || '', createdAt: b.createdAt || 0 };
-                players.set(id, p);
-                d.roster.push(p);
+                const member = { id, name: b.partnerGameName || '未命名', level: b.partnerLevel || LEVEL_MIN, createdAt: b.createdAt || 0 };
+                const key = socialKey(b.partnerSocial);
+                let player = key && d.roster.find((p) => socialKey(p.social) === key);
+                if (player) player.members.push(member);
+                else {
+                    player = { id: 'person_' + id, social: { ...b.partnerSocial }, note: b.note || '', createdAt: b.createdAt || 0, members: [member] };
+                    d.roster.push(player);
+                }
+                players.set(id, { player, member });
             }
             b.partnerAccountId = null;
             b.partnerPlayerId = id;
@@ -501,11 +571,11 @@
                     b.partnerLevel = target.level;
                 } else toRosterPlayer(b);
             } else if (b.partnerPlayerId) {
-                const p = players.get(b.partnerPlayerId);
-                if (p) {
-                    b.partnerGameName = p.name;
-                    b.partnerLevel = p.level;
-                    b.partnerSocial = { ...p.social };
+                const x = players.get(b.partnerPlayerId);
+                if (x) {
+                    b.partnerGameName = x.member.name;
+                    b.partnerLevel = x.member.level;
+                    b.partnerSocial = { ...x.player.social };
                 } else if (reconcile) toRosterPlayer(b);   // 進行中的羈絆不能沒有隊友
                 else b.partnerPlayerId = null;            // 歷史紀錄：玩家已從名單刪除，保留名稱就好
             } else if (reconcile || b.partnerGameName) toRosterPlayer(b);
@@ -647,6 +717,95 @@
         return B.bonds.length < MAX_BONDS_PER_ACCOUNT || B.bonds.some((b) => b.partnerAccountId === accId);
     }
 
+    // ---------------- 今天一起打：排出用哪幾個自己的帳號、各打幾場 ----------------
+    // 一場最多 4 人。選了 n 位其他玩家的遊戲帳號，每場就能帶 4 - n 個自己的帳號；
+    // 場上「自己的帳號 × 其他玩家」每一組都 +1 場。自己帳號之間一定會滿，不計算。
+    const PARTY_SIZE = 4;
+
+    // 自己某個帳號和某個遊戲帳號今天還要打幾場
+    function pairNeed(acc, member, settings, today) {
+        const ref = { type: 'player', id: member.id };
+        const found = findPair(acc, ref);
+        let entry;
+        if (found && found.active) entry = found.entry;
+        else if (found && found.entry.lastCompletedDate === today) return { need: 0, state: 'doneToday', active: false };
+        else entry = { ...(found ? restoreBond(found.entry) : makeBond({ partnerPlayerId: member.id }, today)), partnerLevel: member.level };
+        const s = todayStatus({ ...entry, partnerLevel: member.level }, acc.level, settings, today);
+        if (s.completedToday) return { need: 0, state: 'doneToday', active: !!(found && found.active) };
+        return { need: s.remainingGames, state: found && found.active ? 'active' : 'notInTeam', active: !!(found && found.active), played: s.played, limit: s.limit };
+    }
+
+    // 每場挑「還要打最多場」的 k 個帳號：總場數 = max(最多的那個, ceil(總和 / k))，這是最少的
+    function scheduleGames(needs, k) {
+        const left = needs.map((x) => ({ ...x }));
+        const games = [];
+        while (left.some((x) => x.need > 0)) {
+            const pick = left.filter((x) => x.need > 0)
+                .sort((x, y) => y.need - x.need || x.order - y.order)
+                .slice(0, k);
+            pick.forEach((x) => { x.need--; });
+            games.push(pick.map((x) => x.id).sort((a, b) => needs.findIndex((n) => n.id === a) - needs.findIndex((n) => n.id === b)));
+        }
+        // 同樣組合的併成一步：「A + B 打 2 場」(順序不影響總場數，照第一次出現的順序)
+        const steps = [];
+        games.forEach((g) => {
+            const same = steps.find((s) => s.accountIds.join() === g.join());
+            if (same) same.games++;
+            else steps.push({ accountIds: g, games: 1 });
+        });
+        return { total: games.length, steps };
+    }
+
+    function planPlayTogether(data, accountIds, memberIds, today) {
+        const members = memberIds.map((id) => findMember(data.roster, id)).filter(Boolean).map((x) => x.member);
+        const slots = PARTY_SIZE - members.length;
+        const accounts = accountIds.map((id) => data.accounts.find((a) => a.id === id)).filter(Boolean);
+        const rows = accounts.map((acc, order) => {
+            const cells = members.map((m) => ({ memberId: m.id, ...pairNeed(acc, m, data.settings, today) }));
+            const toAdd = cells.filter((c) => c.state === 'notInTeam').length;
+            const full = acc.bonds.length + toAdd > MAX_BONDS_PER_ACCOUNT;
+            const need = full ? 0 : Math.max(0, ...cells.map((c) => c.need));
+            return { accountId: acc.id, order, cells, toAdd, full, need };
+        });
+        const plan = slots > 0 ? scheduleGames(rows.filter((r) => !r.full).map((r) => ({ id: r.accountId, need: r.need, order: r.order })), slots)
+            : { total: 0, steps: [] };
+        return { slots, rows, ...plan };
+    }
+
+    // 記錄一場：這場的自己帳號 × 其他玩家的遊戲帳號各 +1 場；還不在隊伍的先加進隊伍 (以前羈絆過就接續)
+    //   隊伍滿了加不進去的、今天已羈完的跳過；回傳新資料、這場達成的獎勵、跳過了哪些
+    function recordPlayTogether(data, accountIds, memberIds, today, now = Date.now()) {
+        const d = JSON.parse(JSON.stringify(data));
+        const completions = [];
+        const skipped = [];
+        let added = 0;
+        accountIds.forEach((accId) => {
+            let acc = d.accounts.find((a) => a.id === accId);
+            if (!acc) return;
+            memberIds.forEach((memberId) => {
+                const x = findMember(d.roster, memberId);
+                if (!x) return;
+                const ref = { type: 'player', id: memberId };
+                let bond = acc.bonds.find((b) => sameRef(b, ref));
+                if (!bond) {
+                    const r = selectPartner(acc, ref, today, now);
+                    if (r.error) { skipped.push({ accountId: accId, memberId, reason: r.error }); return; }
+                    acc = r.account;
+                    d.accounts = d.accounts.map((a) => (a.id === accId ? acc : a));
+                    bond = r.bond;
+                }
+                // 新加進來的還沒帶入對方的名稱 / 等級，先補上，場數上限才會對
+                Object.assign(bond, { partnerGameName: x.member.name, partnerLevel: x.member.level, partnerSocial: { ...x.player.social } });
+                const r = addGame(bond, acc.level, d.settings, today);
+                if (r.blocked) { skipped.push({ accountId: accId, memberId, reason: 'doneToday' }); return; }
+                acc.bonds = acc.bonds.map((b) => (b.id === bond.id ? r.bond : b));
+                added++;
+                if (r.completion) completions.push({ accountId: accId, memberId, bondId: r.bond.id, completion: r.completion });
+            });
+        });
+        return { data: d, completions, skipped, added };
+    }
+
     // ---------------- 雲端同步：版本比對與三方合併 ----------------
 
     const cloudStampOf = (data) => ({
@@ -738,8 +897,9 @@
         isOverrideValid, gameLimit, isCompletedToday, todayStatus,
         rewardFor, nextCompletionNumber, ticketInfo,
         addGame, removeGame, markFull, notFullYet, canUndoCompletion, reconcileOverride, setCounts,
-        makeAccount, makeBond, makePlayer, endBond, restoreBond, legacyPlayerId, partnerRefOf, sameRef, selectPartner, undoDoneToday, findPair, setPairProgress,
+        makeAccount, makeBond, makePlayer, makeMember, playerName, rosterMembers, findMember, socialKey, endBond, restoreBond, legacyPlayerId, partnerRefOf, sameRef, selectPartner, undoDoneToday, findPair, setPairProgress,
         emptyData, sanitizeData, normalizeData, mirrorOwnPairs, ownPairHasRoom,
+        PARTY_SIZE, scheduleGames, planPlayTogether, recordPlayTogether,
         cloudStampOf, sameStamp, stableStringify, mergeData, sameData, countChanges,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;

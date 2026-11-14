@@ -207,12 +207,13 @@ test('隊友名單：舊資料轉換，同名同社群帳號合併成一筆，id
     };
     const first = L.normalizeData(L.sanitizeData(raw)).data;
     const second = L.normalizeData(L.sanitizeData(raw)).data;
-    assert.deepEqual(first.roster.map((p) => p.name).sort(), ['小明', '阿強']);
-    assert.deepEqual(first.roster.map((p) => p.id), second.roster.map((p) => p.id), '兩台裝置各自轉換得到同一個 id');
-    const ming = first.roster.find((p) => p.name === '小明');
+    assert.deepEqual(first.roster.flatMap((p) => p.members.map((m) => m.name)).sort(), ['小明', '阿強']);
+    assert.deepEqual(L.rosterMembers(first.roster).map((x) => x.member.id), L.rosterMembers(second.roster).map((x) => x.member.id), '兩台裝置各自轉換得到同一個 id');
+    const ming = first.roster.find((p) => p.members.some((m) => m.name === '小明'));
     assert.equal(ming.note, '週末才上線');
-    assert.equal(first.accounts[0].bonds[0].partnerPlayerId, ming.id);
-    assert.equal(first.accounts[1].bonds[0].partnerPlayerId, ming.id);
+    assert.equal(L.playerName(ming), 'ming', '以社群帳號為主');
+    assert.equal(first.accounts[0].bonds[0].partnerPlayerId, ming.members[0].id);
+    assert.equal(first.accounts[1].bonds[0].partnerPlayerId, ming.members[0].id);
 });
 
 test('隊友名單：改名單裡的等級，所有羈絆一起更新', () => {
@@ -222,7 +223,7 @@ test('隊友名單：改名單裡的等級，所有羈絆一起更新', () => {
     ] });
     d = L.normalizeData(d).data;
     assert.equal(d.accounts[0].bonds[0].partnerGameName, '小明');
-    d.roster[0].level = 1300;
+    d.roster[0].members[0].level = 1300;
     d = L.normalizeData(d).data;
     assert.equal(d.accounts[0].bonds[0].partnerLevel, 1300);
     assert.equal(d.accounts[1].bonds[0].partnerLevel, 1300);
@@ -392,4 +393,82 @@ test('自己帳號之間：舊資料兩邊不一致時，以隊伍中 / 次數�
     for (let i = 0; i < L.MAX_BONDS_PER_ACCOUNT; i++) full.accounts[1].bonds.push(L.makeBond({ partnerPlayerId: 'p' + i }, TODAY));
     assert.equal(L.ownPairHasRoom(full, 'acc_b', 'acc_a'), false);
     assert.equal(L.ownPairHasRoom(full, 'acc_a', 'acc_b'), true);
+});
+
+test('隊友名單：一位玩家 (社群帳號) 底下有多個遊戲帳號，各自是不同的羈絆；同社群帳號的舊資料合併', () => {
+    const d = L.normalizeData(L.sanitizeData({ roster: [
+        { id: 'p1', name: 'Z', level: 1200, social: { platform: 'LINE', customPlatform: '', handle: '小明' }, note: '', createdAt: 1 },
+        { id: 'p2', name: 'X', level: 900, social: { platform: 'LINE', customPlatform: '', handle: '小明' }, note: '', createdAt: 2 },
+        { id: 'p3', name: 'Q', level: 900, social: { platform: 'LINE', customPlatform: '', handle: '' }, note: '', createdAt: 3 },
+    ], accounts: [{ id: 'a1', name: '羽入', level: 1000, bonds: [{ id: 'b1', partnerPlayerId: 'p1', createdAt: 1 }, { id: 'b2', partnerPlayerId: 'p2', createdAt: 1 }] }] })).data;
+    assert.equal(d.roster.length, 2, '同 LINE 帳號合併；沒填帳號名稱的不合併');
+    assert.deepEqual(d.roster[0].members.map((m) => m.name), ['Z', 'X']);
+    assert.deepEqual(d.accounts[0].bonds.map((b) => [b.partnerGameName, b.partnerLevel]), [['Z', 1200], ['X', 900]]);
+    assert.equal(L.findMember(d.roster, 'p2').player.id, d.roster[0].id);
+});
+
+// 今天一起打：選了其他玩家的遊戲帳號，排出每場帶哪幾個自己的帳號
+test('排程：每場帶 k 個帳號，總場數最少 = max(最多的, ceil(總和 / k))', () => {
+    const cases = [
+        [[3, 3, 3], 2, 5],
+        [[4, 1, 1], 2, 4],
+        [[2, 2, 0], 2, 2],
+        [[1, 1, 1], 3, 1],
+        [[5, 2, 2], 3, 5],
+        [[0, 0, 0], 2, 0],
+    ];
+    for (const [needs, k, total] of cases) {
+        const r = L.scheduleGames(needs.map((need, order) => ({ id: 'a' + order, need, order })), k);
+        assert.equal(r.total, total, `${needs} k=${k}`);
+        // 每個帳號出場次數 ≥ 需要的場數
+        const count = {};
+        r.steps.forEach((s) => s.accountIds.forEach((id) => { count[id] = (count[id] || 0) + s.games; }));
+        needs.forEach((need, i) => assert.ok((count['a' + i] || 0) >= need));
+        r.steps.forEach((s) => assert.ok(s.accountIds.length <= k));
+    }
+});
+
+test('今天一起打：規劃考慮隊伍位子；記錄一場時全部組合各 +1，不在隊伍的自動加入，自己帳號之間不算', () => {
+    const member = (id, name, level) => ({ id, name, level, createdAt: 1 });
+    const data = L.normalizeData({
+        settings,
+        roster: [{ id: 'person_1', social: { platform: 'LINE', customPlatform: '', handle: '小明' }, note: '', createdAt: 1, members: [member('Z', 'Z', 1490), member('X', 'X', 1450)] }],
+        accounts: [
+            { ...L.makeAccount({ name: 'A', level: 1500 }), id: 'A' },
+            { ...L.makeAccount({ name: 'B', level: 1500 }), id: 'B' },
+            { ...L.makeAccount({ name: 'C', level: 1500 }), id: 'C' },
+        ],
+    }, TODAY).data;
+    // A、B 互相羈絆 (自己帳號，佔位子但不計算)
+    data.accounts[0] = L.selectPartner(data.accounts[0], { type: 'account', id: 'B' }, TODAY).account;
+    // C 的隊伍已經滿了 2 位，再加 Z、X 會超過 3 位
+    data.accounts[2].bonds.push(L.makeBond({ partnerAccountId: 'A' }, TODAY), L.makeBond({ partnerAccountId: 'B' }, TODAY));
+
+    const plan = L.planPlayTogether(data, ['A', 'B', 'C'], ['Z', 'X'], TODAY);
+    assert.equal(plan.slots, 2);
+    const row = (id) => plan.rows.find((r) => r.accountId === id);
+    assert.equal(row('C').full, true);
+    // 等級差 10 → 215 體 → 4 場；等級差 50 → 175 體 → 3 場；A 要 max(4,3) = 4 場
+    assert.equal(row('A').need, 4);
+    assert.equal(row('B').need, 4);
+    assert.equal(plan.total, 4);
+    assert.deepEqual(plan.steps, [{ accountIds: ['A', 'B'], games: 4 }]);
+
+    const r = L.recordPlayTogether(data, ['A', 'B'], ['Z', 'X'], TODAY);
+    assert.equal(r.added, 4);
+    const a = r.data.accounts.find((x) => x.id === 'A');
+    assert.deepEqual(a.bonds.map((b) => [b.partnerAccountId || b.partnerPlayerId, b.gamesPlayed]), [['B', 0], ['Z', 1], ['X', 1]]);
+    assert.equal(a.bonds.find((b) => b.partnerPlayerId === 'Z').partnerLevel, 1490);
+
+    // C 只剩 1 個位子：Z 加得進去，X 跳過
+    const r2 = L.recordPlayTogether(data, ['C'], ['Z', 'X'], TODAY);
+    assert.deepEqual(r2.skipped.map((s) => [s.memberId, s.reason]), [['X', 'full']]);
+
+    // 打到第 3 場，X 那組 (3 場) 達成
+    let d = r.data;
+    let last;
+    for (let i = 0; i < 2; i++) { last = L.recordPlayTogether(d, ['A', 'B'], ['Z', 'X'], TODAY); d = last.data; }
+    assert.deepEqual(last.completions.map((c) => [c.accountId, c.memberId]), [['A', 'X'], ['B', 'X']]);
+    const plan2 = L.planPlayTogether(L.normalizeData(d, TODAY).data, ['A', 'B', 'C'], ['Z', 'X'], TODAY);
+    assert.equal(plan2.total, 1, 'Z 還差 1 場');
 });
