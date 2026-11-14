@@ -126,6 +126,12 @@ body {
 .roster-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
 .roster-row { border-radius: 10px; background: #fafafa; }
 .roster-row[open] { background: #f4f1f6; }
+.roster-row.state-done { background: var(--done-light); border-left: 5px solid var(--done); }
+.roster-row.state-done[open] { background: #dcefdd; }
+.roster-row.state-done .roster-who strong { color: var(--done); }
+.roster-row.state-done .roster-brief { font-weight: 700; }
+.roster-row.state-pending { border-left: 5px solid var(--accent); }
+.roster-row.state-idle { border-left: 5px solid transparent; }
 .roster-summary-line {
     display: flex; align-items: center; gap: 8px 12px; padding: 10px 12px;
     cursor: pointer; list-style: none; min-height: 44px;

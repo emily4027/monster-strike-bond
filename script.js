@@ -449,9 +449,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const syncToggle = () => { if (toggleBtn) toggleBtn.textContent = allRowsNow().some((r) => r.open) ? '全部收合' : '全部展開'; };
         const row = (label, meta, ref, actions, list = relations(ref), body = null) => {
             const key = refKey(ref);
-            const el = h('details', { class: 'roster-row', open: rosterOpen.has(key) },
+            // 整列用顏色標狀態：今天全部羈完 → 綠色；還有隊伍中的 → 粉紅色左邊條；沒羈絆 → 不變
+            const pendingN = list.filter((x) => !x.s.completedToday).length;
+            const state = list.length === 0 ? 'idle' : pendingN === 0 ? 'done' : 'pending';
+            const el = h('details', { class: 'roster-row state-' + state, open: rosterOpen.has(key) },
                 h('summary', { class: 'roster-summary-line' },
-                    h('span', { class: 'roster-who' }, h('strong', { text: label }), meta ? h('span', { class: 'roster-meta', text: meta }) : null),
+                    h('span', { class: 'roster-who' }, h('strong', { text: (state === 'done' ? '✅ ' : '') + label }), meta ? h('span', { class: 'roster-meta', text: meta }) : null),
                     summaryOf(list)),
                 h('div', { class: 'roster-body' },
                     body || h('div', { class: 'roster-status' }, relationItems(list)),
