@@ -738,7 +738,7 @@ document.addEventListener('DOMContentLoaded', () => {
             overview = h('div', { class: 'overview' },
                 h('span', { class: 'overview-title', text: `今天還有 ${pending.length} 位沒羈完` + (doneToday.length ? `（已羈完 ${doneToday.length} 位）` : '') }),
                 ...pending.map(({ bond, s }) => h('span', { class: 'overview-item', text: `${partnerLabel(bond)}：還差 ${s.remainingGames} 場` })),
-                h('button', { type: 'button', class: 'btn btn-accent btn-sm', onclick: () => openPlayedModal() }, icon('bi-controller'), ' 打完一場…'));
+                h('span', { class: 'overview-hint', text: '打完一場到上面「今天一起打」記錄' }));
         }
 
         const full = acc.bonds.length >= L.MAX_BONDS_PER_ACCOUNT;
@@ -800,8 +800,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     ? h('button', { type: 'button', class: 'btn btn-outline-secondary', onclick: () => undoCompletion(acc.id, bond.id) }, '還沒滿？撤銷今天這次')
                     : h('button', { type: 'button', class: 'btn btn-outline-secondary', disabled: true }, '今天已達成'))
             : h('div', { class: 'btn-row' },
-                h('button', { type: 'button', class: 'btn btn-outline-secondary', style: 'flex:0 0 auto', 'aria-label': '減 1 場', disabled: s.played === 0, onclick: () => minusGame(acc.id, bond.id) }, '−1'),
-                h('button', { type: 'button', class: 'btn btn-accent', onclick: () => plusGame(acc.id, [bond.id]) }, '＋1 場'),
+                // 記錄場數統一在「今天一起打」；這裡只留修正用的按鈕
+                h('button', { type: 'button', class: 'btn btn-outline-secondary', 'aria-label': '記錯了，減 1 場', disabled: s.played === 0, onclick: () => minusGame(acc.id, bond.id) }, '−1 場（記錯了）'),
                 h('button', { type: 'button', class: 'btn btn-outline-success', onclick: () => markFull(acc.id, bond.id) }, '已經滿了'));
 
         const nextNo = bond.cycleCount + 1;
@@ -841,9 +841,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function doneTodaySection(acc, doneToday) {
         if (doneToday.length === 0) return null;
         const t = today();
-        return h('div', { class: 'mt-4' },
-            h('h3', { class: 'section-title' }, icon('bi-check2-circle'), ` 今天已羈完（${doneToday.length}）`),
-            h('ul', { class: 'list-group' }, doneToday.map((e) => {
+        // 預設收起來，點開才看每一位拿到的獎勵和「還沒滿」
+        return h('details', { class: 'mt-4 done-today' },
+            h('summary', { class: 'section-title' }, icon('bi-check2-circle'), ` 今天已羈完（${doneToday.length}）`),
+            h('ul', { class: 'list-group mt-2' }, doneToday.map((e) => {
                 const number = e.cycleCount === 0 ? L.CYCLE_LENGTH : e.cycleCount;
                 const reward = L.rewardFor(number);
                 return h('li', { class: 'list-group-item history-item done-item' },
@@ -884,28 +885,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function reportCompletion(acc, bond, completion) {
         const nameText = `${bond.partnerGameName} 第 ${completion.number} 次達成：${completion.reward.name}${completion.reward.orbTicket ? ' 🎉' : ''}`;
         showToast(nameText, 'reward', { label: '還沒滿', run: () => undoCompletion(acc.id, bond.id) });
-    }
-
-    function plusGame(accId, bondIds) {
-        withAccount(accId, (acc) => {
-            const t = today();
-            const done = [];
-            commit(() => {
-                bondIds.forEach((id) => {
-                    const b = findBond(acc, id);
-                    if (!b) return;
-                    const r = L.addGame(b, acc.level, data.settings, t);
-                    if (r.blocked) return;
-                    replaceBond(acc, r.bond);
-                    if (r.completion) done.push({ bond: r.bond, completion: r.completion });
-                });
-            });
-            if (done.length === 1) reportCompletion(acc, done[0].bond, done[0].completion);
-            else if (done.length > 1) {
-                showToast(done.map((d) => `${d.bond.partnerGameName} 第 ${d.completion.number} 次：${d.completion.reward.name}`).join('；') +
-                    '（還沒滿的話，到卡片上按「還沒滿」）', 'reward');
-            } else if (bondIds.length > 1) showToast(`已記錄 ${bondIds.length} 段羈絆各 ＋1 場`);
-        });
     }
 
     function minusGame(accId, bondId) {
@@ -1353,122 +1332,6 @@ document.addEventListener('DOMContentLoaded', () => {
             { cycleCount, completedToday: $('countsToday').checked, gamesPlayed, limit: finalLimit }, acc.level, data.settings, today())));
         modal('countsModal').hide();
         showToast('已更新');
-    });
-
-    // ---------------- Modal：打完一場 ----------------
-    // 這場有誰：勾目前帳號隊伍裡的隊友。勾到兩個以上自己的帳號時，它們彼此之間也是同一場 (例如羽入和梨花、沙都子一起打 → 梨花×沙都子也算)
-    function ownPairsInGame(acc, bondIds) {
-        const t = today();
-        const own = bondIds.map((id) => findBond(acc, id)).filter((b) => b && b.partnerAccountId)
-            .map((b) => data.accounts.find((a) => a.id === b.partnerAccountId)).filter(Boolean);
-        const pairs = [];
-        for (let i = 0; i < own.length; i++) {
-            for (let j = i + 1; j < own.length; j++) {
-                const x = own[i], y = own[j];
-                const active = x.bonds.find((b) => b.partnerAccountId === y.id);
-                const found = L.findPair(x, { type: 'account', id: y.id });
-                let state;
-                if (active) state = L.isCompletedToday(active, t) ? 'done' : 'active';
-                else if (found && found.entry.lastCompletedDate === t) state = 'done';
-                else state = x.bonds.length < L.MAX_BONDS_PER_ACCOUNT && y.bonds.length < L.MAX_BONDS_PER_ACCOUNT ? 'addable' : 'full';
-                pairs.push({ x, y, state, bond: active || null });
-            }
-        }
-        return pairs;
-    }
-
-    function renderPlayedPairs() {
-        const acc = currentAccount();
-        if (!acc) return;
-        const ids = [...$('playedList').querySelectorAll('input:checked')].map((i) => i.value);
-        const pairs = ownPairsInGame(acc, ids);
-        const prevChecked = new Set([...$('playedPairs').querySelectorAll('input:checked')].map((i) => i.value));
-        const prevSeen = new Set([...$('playedPairs').querySelectorAll('input')].map((i) => i.value));
-        if (pairs.length === 0) { $('playedPairs').replaceChildren(); return; }
-        const t = today();
-        $('playedPairs').replaceChildren(
-            h('div', { class: 'played-pairs-title', text: '同一場的自己帳號之間' }),
-            h('div', { class: 'list-group' }, pairs.map(({ x, y, state, bond }) => {
-                const key = x.id + '|' + y.id;
-                const name = `👤 ${x.name} × 👤 ${y.name}`;
-                if (state === 'done' || state === 'full') {
-                    return h('div', { class: 'list-group-item d-flex align-items-center gap-2 text-muted' },
-                        h('span', { class: 'flex-grow-1', text: name }),
-                        h('span', { class: 'small', text: state === 'done' ? '✅ 今天已羈完' : '隊伍已滿 3 位，沒辦法加入' }));
-                }
-                const checked = prevSeen.has(key) ? prevChecked.has(key) : state === 'active';
-                const s = bond ? L.todayStatus(bond, x.level, data.settings, t) : null;
-                return h('label', { class: 'list-group-item d-flex align-items-center gap-2' },
-                    h('input', { type: 'checkbox', class: 'form-check-input m-0', value: key, checked }),
-                    h('span', { class: 'flex-grow-1', text: name }),
-                    h('span', { class: 'text-muted small', text: s ? `${s.played} / ${s.limit} 場` : '還沒在隊伍，勾選會加進兩邊隊伍' }));
-            })));
-    }
-
-    function openPlayedModal() {
-        const acc = currentAccount();
-        if (!acc) return;
-        const t = today();
-        const pending = acc.bonds.filter((b) => !L.isCompletedToday(b, t));
-        if (pending.length === 0) { showToast('今天的羈絆都達成了', 'info'); return; }
-        $('playedList').replaceChildren(...pending.map((b) => {
-            const s = L.todayStatus(b, acc.level, data.settings, t);
-            return h('label', { class: 'list-group-item d-flex align-items-center gap-2' },
-                h('input', { type: 'checkbox', class: 'form-check-input m-0', value: b.id, checked: true }),
-                h('span', { class: 'flex-grow-1', text: partnerLabel(b) }),
-                h('span', { class: 'text-muted small', text: `${s.played} / ${s.limit} 場` }));
-        }));
-        $('playedPairs').replaceChildren();
-        renderPlayedPairs();
-        modal('playedModal').show();
-    }
-
-    $('playedList').addEventListener('change', renderPlayedPairs);
-
-    $('playedForm').addEventListener('submit', (ev) => {
-        ev.preventDefault();
-        const acc = currentAccount();
-        const ids = [...$('playedList').querySelectorAll('input:checked')].map((i) => i.value);
-        const pairKeys = [...$('playedPairs').querySelectorAll('input:checked')].map((i) => i.value);
-        modal('playedModal').hide();
-        if (!acc || ids.length === 0) return;
-        const t = today();
-        const done = [];
-        let added = 0;
-        const play = (a, b) => {
-            const r = L.addGame(b, a.level, data.settings, t);
-            if (r.blocked) return;
-            replaceBond(a, r.bond);
-            if (r.completion) done.push({ acc: a, bond: r.bond, completion: r.completion });
-            added++;
-        };
-        commit(() => {
-            ids.forEach((id) => { const b = findBond(acc, id); if (b) play(acc, b); });
-            pairKeys.forEach((key) => {
-                const [xId, yId] = key.split('|');
-                let x = data.accounts.find((a) => a.id === xId);
-                if (!x || !data.accounts.some((a) => a.id === yId)) return;
-                let b = x.bonds.find((e) => e.partnerAccountId === yId);
-                if (!b) {
-                    // 還沒在隊伍：加進兩邊隊伍 (另一邊由 commit 同步)，以前羈絆過就接續
-                    if (!L.ownPairHasRoom(data, yId, xId)) return;
-                    const r = L.selectPartner(x, { type: 'account', id: yId }, t);
-                    if (r.error) return;
-                    data.accounts = data.accounts.map((a) => (a.id === xId ? r.account : a));
-                    x = r.account;
-                    // 新建的羈絆還沒帶入對方的名稱 / 等級 (平常是存檔整理時才補)，這裡要先補，場數上限才會對
-                    const y = data.accounts.find((a) => a.id === yId);
-                    b = { ...r.bond, partnerGameName: y.name, partnerLevel: y.level };
-                    replaceBond(x, b);
-                }
-                play(x, b);
-            });
-        });
-        if (done.length === 1) reportCompletion(done[0].acc, done[0].bond, done[0].completion);
-        else if (done.length > 1) {
-            showToast(done.map((d) => `${d.bond.partnerGameName} 第 ${d.completion.number} 次：${d.completion.reward.name}`).join('；') +
-                '（還沒滿的話，到卡片上按「還沒滿」）', 'reward');
-        } else if (added > 1) showToast(`已記錄 ${added} 段羈絆各 ＋1 場`);
     });
 
     // ---------------- 設定與備份 ----------------
