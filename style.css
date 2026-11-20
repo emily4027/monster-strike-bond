@@ -192,6 +192,9 @@ body {
 .play-step-games { margin-left: 6px; }
 .play-step-now { margin-left: 6px; font-size: .75rem; background: var(--accent); color: #fff; border-radius: 6px; padding: 1px 6px; }
 .play-chip:disabled { opacity: .45; }
+.play-chip.done, .play-chip.done:disabled { opacity: 1; background: var(--done-light); border-color: var(--done); color: var(--done); font-weight: 700; }
+.play-chip-count { margin-left: 6px; font-size: .75rem; font-weight: 700; color: var(--done); background: var(--done-light); border-radius: 999px; padding: 0 6px; }
+.play-chip.on .play-chip-count { background: #fff; }
 .play-table { margin-top: 12px; font-size: .9rem; }
 .play-table th, .play-table td { white-space: nowrap; vertical-align: middle; }
 .play-plan { background: #fff7fa; border-radius: 10px; padding: 10px 12px; margin-top: 8px; }

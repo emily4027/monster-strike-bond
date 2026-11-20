@@ -559,6 +559,18 @@ document.addEventListener('DOMContentLoaded', () => {
         playMembers = playMembers.filter((id) => members.some((x) => x.member.id === id));
         const accIds = data.accounts.map((a) => a.id);
         const chosenAccounts = (playAccounts || accIds).filter((id) => accIds.includes(id));
+        // 某個遊戲帳號今天已經和幾個「參加排程的自己帳號」羈完
+        const tNow = today();
+        const doneCount = (memberId) => chosenAccounts.filter((accId) => {
+            const acc = data.accounts.find((a) => a.id === accId);
+            const f = acc && L.findPair(acc, { type: 'player', id: memberId });
+            return f && f.entry.lastCompletedDate === tNow;
+        }).length;
+        const allDone = (memberId) => chosenAccounts.length > 0 && doneCount(memberId) === chosenAccounts.length;
+        // 和自己的帳號都羈完了 → 自動取消選取 (今天不用再跟他打)
+        const before = playMembers.length;
+        playMembers = playMembers.filter((id) => !allDone(id));
+        if (playMembers.length !== before) store.set(PLAY_MEMBERS_KEY, JSON.stringify(playMembers));
         if (members.length === 0 || data.accounts.length === 0) {
             box.replaceChildren(h('div', {},
                 h('h2', { class: 'section-title m-0' }, icon('bi-controller'), ' 今天一起打'),
@@ -572,16 +584,20 @@ document.addEventListener('DOMContentLoaded', () => {
             h('span', { class: 'play-person-name', text: L.playerName(p) }),
             p.members.map((m) => {
                 const on = playMembers.includes(m.id);
+                const n = doneCount(m.id);
+                const done = allDone(m.id);
                 return h('button', {
-                    type: 'button', class: 'play-chip' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false',
-                    disabled: !on && playMembers.length >= MAX_PLAY_MEMBERS,
+                    type: 'button', class: 'play-chip' + (on ? ' on' : '') + (done ? ' done' : ''), 'aria-pressed': on ? 'true' : 'false',
+                    title: done ? '今天已經和你的帳號都羈完' : n ? `今天已和 ${n} 個帳號羈完` : null,
+                    disabled: done || (!on && playMembers.length >= MAX_PLAY_MEMBERS),
                     onclick: () => {
                         playMembers = on ? playMembers.filter((id) => id !== m.id) : [...playMembers, m.id];
                         store.set(PLAY_MEMBERS_KEY, JSON.stringify(playMembers));
                         playNext = null;
                         renderPlay();
                     },
-                }, `${m.name}・${m.level}`);
+                }, done ? '✅ ' : '', `${m.name}・${m.level}`,
+                n && !done ? h('span', { class: 'play-chip-count', text: `✓ ${n}/${chosenAccounts.length}` }) : null);
             }))));
 
         // 2. 要一起羈絆的自己帳號
