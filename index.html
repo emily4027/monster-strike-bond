@@ -12,39 +12,40 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- 工具組共用風格（由工具箱提供，改一處五個工具一起變） -->
+    <link rel="stylesheet" href="/monster-strike-toolbox/theme.css">
     <link rel="stylesheet" href="style.css">
 </head>
-<body>
-    <div class="bg-decoration"></div>
+<body class="ms-page ms-has-dock">
 
-    <div class="container main-container">
-        <header class="app-header text-center">
-            <div class="icon-badge mx-auto mb-3">🤝</div>
-            <h1>怪物彈珠羈絆場次工具</h1>
+    <div class="container main-container ms-shell">
+        <header class="app-header ms-header">
+            <div class="ms-header-icon" aria-hidden="true">🤝</div>
+            <h1 class="ms-title">怪物彈珠羈絆場次工具</h1>
 
-            <div id="cloudStatus" class="cloud-status">
+            <div id="cloudStatus" class="cloud-status ms-auth-status">
                 <span class="status-dot" id="statusDot"></span>
                 <span id="cloudStatusText">連線中...</span>
             </div>
 
             <div id="authErrorMsg" class="auth-error" style="display: none;"></div>
 
-            <div id="auth-container" class="mt-2">
-                <button type="button" id="google-login-btn" class="auth-btn login" style="display: none;">
-                    <i class="bi bi-google"></i> 登入 Google 帳號以啟用雲端功能
+            <div id="auth-container" class="ms-auth">
+                <button type="button" id="google-login-btn" class="auth-btn login ms-login-btn" style="display: none;">
+                    <i class="bi bi-google"></i> 用 Google 登入（啟用雲端同步）
                 </button>
-                <div id="user-info" style="display: none;">
-                    <img id="user-avatar" src="" alt="" class="rounded-circle" style="width: 30px; height: 30px;">
+                <div id="user-info" class="ms-user-chip" style="display: none;">
+                    <img id="user-avatar" src="" alt="" class="ms-avatar">
                     <span id="user-display-name" class="fw-bold"></span>
-                    <button type="button" id="logout-btn" class="btn btn-sm btn-outline-secondary">登出</button>
+                    <button type="button" id="logout-btn" class="ms-btn ms-btn-sm ms-btn-ghost">登出</button>
                 </div>
             </div>
-            <div class="today-label mt-2">今天（台灣時間）：<span id="todayLabel"></span></div>
+            <div class="today-label">今天（台灣時間）：<span id="todayLabel"></span></div>
         </header>
 
         <!-- 隊友名單 -->
-        <section id="rosterSection" class="section-card mb-3"></section>
-        <section id="playSection" class="section-card mb-3"></section>
+        <section id="rosterSection" class="section-card ms-card mb-3"></section>
+        <section id="playSection" class="section-card ms-card mb-3"></section>
 
         <!-- 帳號切換 -->
         <nav class="account-tabs" id="accountTabs" aria-label="帳號"></nav>
@@ -53,9 +54,9 @@
         <main id="accountPanel"></main>
 
         <!-- 設定與資料管理 -->
-        <section class="section-card mt-4 mb-5">
-            <div class="card-header">
-                <h2><i class="bi bi-gear-fill"></i> 設定與資料</h2>
+        <section class="section-card ms-card mt-4 mb-5">
+            <div class="card-header ms-card-head">
+                <h2 class="ms-card-title"><i class="bi bi-gear-fill"></i> 設定與資料</h2>
             </div>
             <div class="p-2">
                 <div class="row g-3 align-items-end">
@@ -65,8 +66,8 @@
                         <div class="form-text">每段羈絆也可以個別設定。</div>
                     </div>
                     <div class="col-md-8 d-flex flex-wrap gap-2">
-                        <button type="button" id="exportBtn" class="btn btn-success"><i class="bi bi-download"></i> 下載備份</button>
-                        <button type="button" id="importBtn" class="btn btn-info text-white"><i class="bi bi-folder2-open"></i> 載入備份</button>
+                        <button type="button" id="exportBtn" class="btn btn-secondary"><i class="bi bi-download"></i> 下載備份</button>
+                        <button type="button" id="importBtn" class="btn btn-secondary"><i class="bi bi-folder2-open"></i> 載入備份</button>
                         <input type="file" id="importFile" accept=".json" hidden>
                     </div>
                 </div>
@@ -74,22 +75,31 @@
         </section>
     </div>
 
-    <!-- 懸浮工具箱 (工具連結會改用工具箱 tools.js 的清單；讀不到時使用下面的連結) -->
-    <div class="toolbox-menu-wrapper">
-        <div class="toolbox-items-list">
-            <a href="https://emily4027.github.io/monster-strike-toolbox/" class="toolbox-item toolbox-home">
-                <i class="bi bi-house-fill"></i> 工具箱首頁
-            </a>
-            <a href="https://emily4027.github.io/monster-strike-fruit-assign/" class="toolbox-item">🍏 果實分配計算機</a>
-            <a href="https://emily4027.github.io/monster-strike-gacha/" class="toolbox-item">📊 抽卡統計工具</a>
-            <a href="https://emily4027.github.io/monster-strike-bond/" class="toolbox-item active">🤝 羈絆場次工具 (現行)</a>
+    <!-- 浮動列：手機在底部固定一列（不蓋內容），桌機在右下角 -->
+    <nav class="ms-float" aria-label="其他工具與連結">
+        <!-- 懸浮工具箱 (工具連結會改用工具箱 tools.js 的清單；讀不到時使用下面的連結) -->
+        <div class="toolbox-menu-wrapper">
+            <div class="toolbox-items-list">
+                <a href="https://emily4027.github.io/monster-strike-toolbox/" class="toolbox-item toolbox-home">
+                    <i class="bi bi-house-fill"></i> 工具箱首頁
+                </a>
+                <a href="https://emily4027.github.io/monster-strike-fruit-assign/" class="toolbox-item">🍏 果實分配計算機</a>
+                <a href="https://emily4027.github.io/monster-strike-gacha/" class="toolbox-item">📊 抽卡統計工具</a>
+                <a href="https://emily4027.github.io/monster-strike-bond/" class="toolbox-item active">🤝 羈絆場次工具 (現行)</a>
+            </div>
+            <button type="button" class="toolbox-main-btn"><i class="bi bi-tools"></i> 工具箱</button>
         </div>
-        <button type="button" class="toolbox-main-btn"><i class="bi bi-tools"></i> 工具箱</button>
-    </div>
 
-    <a href="https://github.com/emily4027/monster-strike-bond" target="_blank" rel="noopener" class="github-project-link" title="前往 GitHub 專案頁面">
-        <i class="bi bi-github"></i> GitHub
-    </a>
+        <a href="https://github.com/emily4027/monster-strike-bond" target="_blank" rel="noopener" class="github-project-link" title="前往 GitHub 專案頁面">
+            <i class="bi bi-github"></i> GitHub
+        </a>
+    </nav>
+    <script>
+        // 純畫面：手機點「工具箱」展開／收合清單（桌機滑鼠移上去也會展開）
+        document.querySelector('.ms-float .toolbox-main-btn')?.addEventListener('click', (e) => {
+            e.currentTarget.parentElement.classList.toggle('is-open');
+        });
+    </script>
 
     <!-- 訊息提示框 (可附一個動作按鈕) -->
     <div id="toast" role="status" aria-live="polite">

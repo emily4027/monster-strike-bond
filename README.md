@@ -1,5 +1,7 @@
 # 怪物彈珠羈絆場次工具
 
+> 終極目標與方向：見[工具箱 VISION.md](https://github.com/emily4027/monster-strike-toolbox/blob/main/VISION.md)。
+
 線上版：https://emily4027.github.io/monster-strike-bond/
 
 管理自己每個遊戲帳號的羈絆隊友（最多 3 位），依等級差估算跑滿羈絆條要打幾場，記錄達成次數、下一次獎勵，以及距離下一張寶珠交換券還差幾天。
