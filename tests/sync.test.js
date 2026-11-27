@@ -131,3 +131,27 @@ test('自己帳號鏡射的羈絆也一致：兩邊各自去重後都在歷史',
     n.accounts.forEach((a) => { assert.equal(a.bonds.length, 0); assert.equal(a.history.length, 1); });
     assert.equal(n.accounts[0].history[0].cycleCount, n.accounts[1].history[0].cycleCount);
 });
+
+test('合併訊息：有衝突才附上筆數', () => {
+    assert.equal(L.conflictNote(0), '');
+    assert.equal(L.conflictNote(2), '（2 筆兩邊都改過，採用這台的版本）');
+});
+
+test('載入雲端合併：衝突筆數和存檔路徑一致', () => {
+    const b = base();
+    const local = clone(b); local.accounts[0].bonds[0].cycleCount = 4; local.accounts[0].bonds[1].cycleCount = 7;
+    const remote = clone(b); remote.accounts[0].bonds[0].cycleCount = 9;
+    assert.equal(L.countChanges(b, local), 2);
+    assert.equal(L.mergeData(b, local, remote).conflicts, 1);
+});
+
+test('別的分頁改本機資料：只有內容不同的寫入才算', () => {
+    const KEY = 'bond_tracker_data_v1';
+    const mine = JSON.stringify(base());
+    assert.equal(L.isForeignLocalChange({ key: KEY, newValue: '{"x":1}' }, KEY, mine), true);
+    assert.equal(L.isForeignLocalChange({ key: KEY, newValue: mine }, KEY, mine), false);       // 同一份雲端資料
+    assert.equal(L.isForeignLocalChange({ key: KEY, newValue: null }, KEY, mine), false);       // 登出清除
+    assert.equal(L.isForeignLocalChange({ key: null, newValue: null }, KEY, mine), false);      // 全部清空
+    assert.equal(L.isForeignLocalChange({ key: 'bond_current_account_v1', newValue: 'a2' }, KEY, mine), false);
+    assert.equal(L.isForeignLocalChange(null, KEY, mine), false);
+});

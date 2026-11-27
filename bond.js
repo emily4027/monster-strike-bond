@@ -910,6 +910,17 @@
         return n;
     }
 
+    // 合併訊息的衝突說明：兩邊都改過同一筆時，告訴使用者採用了這台的版本
+    const conflictNote = (conflicts) => (conflicts > 0 ? `（${conflicts} 筆兩邊都改過，採用這台的版本）` : '');
+
+    // storage 事件是否代表「別的分頁改了本機資料，而且和這個分頁手上的不同」
+    //   只有別的分頁寫入才會觸發；刪除 (登出清除) 交給登入狀態處理，內容相同 (都從雲端載入同一份) 不算
+    function isForeignLocalChange(event, watchedKey, currentSerialized) {
+        if (!event || event.key !== watchedKey) return false;
+        if (event.newValue === null || event.newValue === undefined) return false;
+        return event.newValue !== currentSerialized;
+    }
+
     const api = {
         STAMINA_TABLE, REWARDS, CYCLE_LENGTH, TIMEZONE_OFFSET_HOURS, DAY_RESET_HOUR,
         DEFAULT_STAMINA_PER_GAME, MAX_BONDS_PER_ACCOUNT, LEVEL_MIN, LEVEL_MAX, STAMINA_PER_GAME_MAX, SOCIAL_PLATFORMS,
@@ -921,7 +932,7 @@
         makeAccount, makeBond, makePlayer, makeMember, playerName, rosterMembers, findMember, socialKey, endBond, restoreBond, legacyPlayerId, partnerRefOf, sameRef, selectPartner, undoDoneToday, findPair, setPairProgress,
         emptyData, sanitizeData, normalizeData, mirrorOwnPairs, ownPairHasRoom,
         PARTY_SIZE, scheduleGames, planPlayTogether, recordPlayTogether,
-        cloudStampOf, sameStamp, stableStringify, mergeData, sameData, countChanges,
+        cloudStampOf, sameStamp, stableStringify, mergeData, sameData, countChanges, conflictNote, isForeignLocalChange,
     };
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
     else root.BondLogic = api;

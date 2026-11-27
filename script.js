@@ -32,6 +32,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let saveTimer = null;
     let hasPendingCloudSave = false;
     let lastRenderedDate = L.getGameDate();
+    let cloudLoadFailed = false;      // 雲端載入失敗：網路恢復 (online) 時自動重試
+    let staleFromOtherTab = false;    // 別的分頁改過本機資料：這個分頁不再寫入，請使用者重新整理
 
     const $ = (id) => document.getElementById(id);
     const today = () => L.getGameDate();
@@ -139,6 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 修改資料的唯一入口：改完存檔、重畫
     // 改完後統一整理：自己帳號隊友的名稱 / 等級跟著更新、失效的修正場數清掉 (bond.js normalizeData)
     function commit(mutate) {
+        if (staleFromOtherTab) { warnStaleTab(); return; }
         const before = JSON.parse(JSON.stringify(data));
         mutate();
         // 自己兩個帳號之間的羈絆是同一段：這次改了哪一邊，就複製到另一邊
@@ -217,8 +220,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 data = L.normalizeData(L.mergeData(localSnapshot, data, result.written).data, today()).data;
                 saveLocal();
                 render();
-                showToast('雲端資料已被其他裝置更新，已自動合併兩邊的修改。' +
-                    (result.merge.conflicts > 0 ? `（${result.merge.conflicts} 筆兩邊都改過，採用這台的版本）` : ''), 'info');
+                showToast('雲端資料已被其他裝置更新，已自動合併兩邊的修改。' + L.conflictNote(result.merge.conflicts), 'info');
             }
             const stillDirty = !L.sameData(data, result.written);
             setUnsynced(stillDirty);
@@ -239,6 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const snap = await window.getDoc(cloudRef());
             if (!currentUser || currentUser.uid !== uid) return;
             isCloudLoading = false;
+            cloudLoadFailed = false;
             const raw = snap.exists() ? snap.data() : null;
             knownCloudStamp = L.cloudStampOf(raw);
             const cloudData = L.sanitizeData(raw);
@@ -251,9 +254,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 setUnsynced(false);
                 data = clone(cloudData);
                 let offlineChanges = 0;
+                let conflicts = 0;
                 if (unsyncedLocal && oldBase) {
                     offlineChanges = L.countChanges(oldBase, unsyncedLocal);
-                    data = L.mergeData(oldBase, unsyncedLocal, cloudData).data;
+                    const merge = L.mergeData(oldBase, unsyncedLocal, cloudData);
+                    data = merge.data;
+                    conflicts = merge.conflicts;
                 }
                 // 舊版雲端資料 (沒有隊友名單) 在這裡轉換；和雲端不同就會在下面存回去
                 data = L.normalizeData(data, today()).data;
@@ -262,7 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 render();
                 if (!L.sameData(data, cloudData)) saveData();
 
-                if (offlineChanges > 0) showToast(`已載入雲端資料，並合併 ${offlineChanges} 筆離線時的修改`);
+                if (offlineChanges > 0) showToast(`已載入雲端資料，並合併 ${offlineChanges} 筆離線時的修改` + L.conflictNote(conflicts), conflicts > 0 ? 'info' : 'success');
                 else if (unsyncedLocal && !oldBase && !L.sameData(unsyncedLocal, cloudData)) {
                     downloadJson(unsyncedLocal, `bond_local_backup_${today()}.json`);
                     showToast('本機有還沒上傳的資料，已下載備份，並改用雲端資料。', 'info');
@@ -292,11 +298,41 @@ document.addEventListener('DOMContentLoaded', () => {
             // 讀不到雲端：改回離線模式，避免用本機資料覆蓋雲端；下次連上時再合併
             isCloudLoading = false;
             isCloudMode = false;
+            cloudLoadFailed = true;
             console.error('[CLOUD] 載入失敗', error);
             updateCloudStatus('offline', '雲端載入失敗 (修改先存在本機)');
-            showToast('無法載入雲端資料，修改會先存在本機，下次連上時合併。', 'error');
+            showToast('無法載入雲端資料，修改會先存在本機。網路恢復時會自動重試，也可以重新整理重新連線。', 'error',
+                { label: '重新整理', run: () => location.reload() });
         }
     }
+
+    // 網路恢復：之前載入失敗就重新載入 (會和離線時的修改合併)；存檔失敗留下的修改也補存
+    window.addEventListener('online', () => {
+        if (!currentUser || staleFromOtherTab) return;
+        if (cloudLoadFailed && !isCloudLoading) {
+            isCloudMode = true;
+            isCloudLoading = true;
+            updateCloudStatus('saving', '網路已恢復，重新從雲端載入...');
+            loadFromCloud();
+        } else if (isCloudMode && !isCloudLoading && hasUnsynced()) {
+            saveData();
+        }
+    });
+
+    // ---------------- 多分頁 ----------------
+    // 別的分頁改了本機資料：這個分頁手上的是舊資料，繼續寫會蓋掉對方的修改 → 停止寫入，請使用者重新整理
+    function warnStaleTab() {
+        updateCloudStatus('offline', '別的分頁改過資料，請重新整理');
+        showToast('這個工具在別的分頁改過資料，這個分頁的修改不會存檔，請重新整理後再操作。', 'error',
+            { label: '重新整理', run: () => location.reload() });
+    }
+    window.addEventListener('storage', (e) => {
+        if (e.storageArea && e.storageArea !== localStorage) return;
+        if (staleFromOtherTab || !L.isForeignLocalChange(e, LOCAL_DATA_KEY, JSON.stringify(data))) return;
+        // 已排程的雲端存檔照常送出：雲端寫入有版本比對與三方合併，不會蓋掉別的分頁的修改
+        staleFromOtherTab = true;
+        warnStaleTab();
+    });
 
     // 登出後不把雲端資料留在這台電腦上
     //   清除前若還有沒上傳的修改 (別的分頁登出、憑證失效也會走到這裡)，先下載備份，不讓修改無聲消失
