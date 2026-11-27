@@ -83,3 +83,51 @@ test('隊友名單：雲端合併時舊格式和新格式的同一位玩家不�
     assert.equal(d.roster.length, 1);
     assert.equal(d.roster[0].members.length, 1);
 });
+
+test('一邊羈完移到歷史、另一邊改同一段：合併後只留一份 (進度多的勝)', () => {
+    const b = base();
+    const local = clone(b);   // 裝置 A：羈完，從隊伍移到歷史
+    const done = { ...local.accounts[0].bonds[0], cycleCount: 4, lastCompletedDate: '2026-11-08', endedAt: '2026-11-08' };
+    local.accounts[0].bonds.splice(0, 1);
+    local.accounts[0].history.push(done);
+    const remote = clone(b); remote.accounts[0].bonds[0].gamesPlayed = 1;   // 裝置 B：同一天 +1 場
+    const { data } = L.mergeData(b, local, remote);
+    ['merge', 'normalize'].forEach((step) => {
+        const acc = (step === 'merge' ? data : L.normalizeData(data, '2026-11-09').data).accounts[0];
+        const inBonds = acc.bonds.filter((x) => x.id === 'b1').length;
+        const inHist = acc.history.filter((x) => x.id === 'b1').length;
+        assert.equal(inBonds + inHist, 1, step);
+        assert.equal(inHist, 1, step);   // 進度多的歷史勝
+    });
+});
+
+test('同一 id 進度相同：以歷史為準；隊伍進度較多：隊伍勝', () => {
+    const mk = (bondCycle, histCycle) => {
+        const d = base();
+        d.accounts[0].bonds[0].cycleCount = bondCycle;
+        d.accounts[0].history.push({ ...d.accounts[0].bonds[0], cycleCount: histCycle, endedAt: '2026-11-08' });
+        return L.normalizeData(d).data.accounts[0];
+    };
+    let acc = mk(3, 3);
+    assert.equal(acc.history.some((x) => x.id === 'b1'), true);
+    assert.equal(acc.bonds.some((x) => x.id === 'b1'), false);
+    acc = mk(5, 3);
+    assert.equal(acc.bonds.some((x) => x.id === 'b1'), true);
+    assert.equal(acc.history.some((x) => x.id === 'b1'), false);
+});
+
+test('自己帳號鏡射的羈絆也一致：兩邊各自去重後都在歷史', () => {
+    const entry = (id, partner, extra) => ({ id, partnerAccountId: partner, partnerGameName: 'x', partnerLevel: 1, cycleCount: 4, totalCycles: 0, createdAt: 1, ...extra });
+    const b = L.sanitizeData({ accounts: [
+        { id: 'a1', name: 'A', level: 1500, createdAt: 1, bonds: [entry('x1', 'a2')], history: [] },
+        { id: 'a2', name: 'B', level: 1500, createdAt: 2, bonds: [entry('x2', 'a1')], history: [] },
+    ] });
+    const local = clone(b);   // A 羈完：兩邊都進歷史
+    const fin = (e) => ({ ...e, cycleCount: 5, lastCompletedDate: '2026-11-08', endedAt: '2026-11-08' });
+    local.accounts.forEach((a) => { a.history.push(fin(a.bonds[0])); a.bonds = []; });
+    const remote = clone(b); remote.accounts.forEach((a) => { a.bonds[0].gamesPlayed = 2; });   // B 同天各改一份
+    const { data } = L.mergeData(b, local, remote);
+    const n = L.normalizeData(data, '2026-11-09').data;
+    n.accounts.forEach((a) => { assert.equal(a.bonds.length, 0); assert.equal(a.history.length, 1); });
+    assert.equal(n.accounts[0].history[0].cycleCount, n.accounts[1].history[0].cycleCount);
+});

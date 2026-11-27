@@ -299,8 +299,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 登出後不把雲端資料留在這台電腦上
+    //   清除前若還有沒上傳的修改 (別的分頁登出、憑證失效也會走到這裡)，先下載備份，不讓修改無聲消失
     function clearLocalCopy(uid) {
         clearTimeout(saveTimer);
+        if (hasUnsynced() && hasAnyData(data)) {
+            downloadJson(data, `bond_local_backup_${today()}.json`);
+            showToast('登出時還有修改沒上傳到雲端，已自動下載備份。', 'info');
+        }
         hasPendingCloudSave = false;
         store.del(LOCAL_DATA_KEY);
         store.del(SYNC_BASE_PREFIX + uid);
@@ -1391,7 +1396,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const parsed = JSON.parse(await file.text());
             if (!parsed || !Array.isArray(parsed.accounts)) throw new Error('格式不符');
             const next = L.sanitizeData(parsed);
-            if (!confirm(`載入備份會取代目前的資料（${next.accounts.length} 個帳號）。確定嗎？`)) return;
+            if (!confirm(`載入備份會取代目前的資料（${next.accounts.length} 個帳號）；登入時雲端的資料也會一併被取代。
+
+按「確定」會先自動下載目前資料的備份，再載入。`)) return;
+            if (hasAnyData(data)) downloadJson(data, `bond_載入前_${today()}.json`);
             commit(() => { data = L.normalizeData(next, today()).data; fixCurrentAccount(); });
             showToast('已載入備份');
         } catch (e) {

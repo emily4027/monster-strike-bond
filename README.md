@@ -38,7 +38,7 @@
 
 | 檔案 | 說明 |
 |---|---|
-| `index.html` | 頁面與 Firebase 設定 |
+| `index.html` | 頁面（Firebase 設定與共用程式在工具箱的共用檔 `shared/`） |
 | `style.css` | 樣式 |
 | `bond.js` | 計算、資料整理、三方合併（純函式，不碰 DOM） |
 | `script.js` | 畫面、存檔、雲端同步 |
@@ -46,11 +46,13 @@
 
 ## 本機開發
 
+`index.html` 用 `/monster-strike-toolbox/...` 根相對路徑載入共用檔，所以要在**上層資料夾**（同時包含 `monster-strike-toolbox` 與 `monster-strike-bond`）起伺服器：
+
 ```bash
 jwebserver -p 8000
 ```
 
-在專案資料夾執行後開 `http://localhost:8000`（Firebase 登入要用 `localhost`，不要用 `127.0.0.1`）。
+然後開 `http://localhost:8000/monster-strike-bond/`（Firebase 登入要用 `localhost`，不要用 `127.0.0.1`）。
 
 ```bash
 node --test tests/

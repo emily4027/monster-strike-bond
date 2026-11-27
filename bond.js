@@ -530,6 +530,26 @@
         return data;
     }
 
+    // 同一帳號內同一個 id 同時在隊伍與歷史 (三方合併「一邊羈完、另一邊改同一段」會造成) → 只留一份
+    //   進度 (totalCycles*20+cycleCount) 多的勝，一樣就看 lastCompletedDate 較新的，再一樣以歷史為準
+    function dedupeAccountEntries(acc) {
+        const progress = (e) => (e.totalCycles || 0) * CYCLE_LENGTH + (e.cycleCount || 0);
+        const hist = new Map(acc.history.map((h) => [h.id, h]));
+        const dropBonds = new Set();
+        const dropHist = new Set();
+        acc.bonds.forEach((b) => {
+            const h = hist.get(b.id);
+            if (!h) return;
+            const pb = progress(b), ph = progress(h);
+            const db = String(b.lastCompletedDate || ''), dh = String(h.lastCompletedDate || '');
+            const bondWins = pb !== ph ? pb > ph : db !== dh ? db > dh : false;
+            (bondWins ? dropHist : dropBonds).add(b.id);
+        });
+        if (dropBonds.size) acc.bonds = acc.bonds.filter((b) => !dropBonds.has(b.id));
+        if (dropHist.size) acc.history = acc.history.filter((h) => !dropHist.has(h.id));
+        return acc;
+    }
+
     // 每次修改後 (以及載入時) 整理資料：
     //   1. 隊友是自己的帳號 → 名稱、等級跟著那個帳號；那個帳號被刪除 → 改成名單裡的其他玩家，保留最後的值
     //   2. 隊友是名單裡的玩家 → 名稱、社群帳號、等級跟著名單
@@ -588,6 +608,7 @@
             acc.bonds = acc.bonds.map((b) => fix(acc, b, true));
             acc.history = acc.history.map((b) => fix(acc, b, false));
         });
+        d.accounts.forEach(dedupeAccountEntries);
         repairOwnPairs(d, today);
         d.accounts.forEach((acc) => {
             if (today) {
@@ -853,7 +874,7 @@
             const { accountId, ...rest } = value;
             acc[list].push(rest);
         });
-        accounts.forEach((a) => { a.bonds.sort(byCreated); a.history.sort((x, y) => String(y.endedAt).localeCompare(String(x.endedAt))); });
+        accounts.forEach((a) => { dedupeAccountEntries(a); a.bonds.sort(byCreated); a.history.sort((x, y) => String(y.endedAt).localeCompare(String(x.endedAt))); });
         data.accounts = [...accounts.values()];
         return data;
     }
