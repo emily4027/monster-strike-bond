@@ -8,7 +8,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ---------------- 常數 ----------------
     const THIS_TOOL_ID = 'bond';
-    const TOOLBOX_TOOLS_URL = 'https://emily4027.github.io/monster-strike-toolbox/tools.js';
     const CLOUD_COLLECTION = 'bond_data';
     const CLOUD_DOC = 'bond_tracker';
     const LOCAL_DATA_KEY = 'bond_tracker_data_v1';         // localStorage：本機資料
@@ -171,7 +170,11 @@ document.addEventListener('DOMContentLoaded', () => {
         try { renderAuthUI(JSON.parse(cached)); } catch (e) { store.del(USER_CACHE_KEY, sessionStorage); }
     }
 
-    const cloudRef = () => window.doc(window.db, 'artifacts', window.envAppId || 'default-app-id', 'users', currentUser.uid, CLOUD_COLLECTION, CLOUD_DOC);
+    // 雲端文件路徑：有共用檔就用 PATHS.bondTracker，否則退回自己拼（結果相同）
+    const bondTrackerPath = (uid) => window.MSShared
+        ? window.MSShared.PATHS.bondTracker(window.envAppId, uid)
+        : ['artifacts', window.envAppId || 'default-app-id', 'users', uid, CLOUD_COLLECTION, CLOUD_DOC];
+    const cloudRef = () => window.doc(window.db, ...bondTrackerPath(currentUser.uid));
 
     function readSyncBase(uid) {
         try {
@@ -308,13 +311,20 @@ document.addEventListener('DOMContentLoaded', () => {
         render();
     }
 
-    function initFirebaseAuth(retries = 0) {
-        if (!window.firebaseAuth || !window.onAuthStateChanged) {
-            if (retries < 50) setTimeout(() => initFirebaseAuth(retries + 1), 100);
-            else {
-                updateCloudStatus('offline', 'SDK 載入失敗 (離線模式)');
-                renderAuthUI(null);
-            }
+    // 等 Firebase module 掛好全域（最多 5 秒，每 100ms 一次）；shared.js 沒載入時退回簡單輪詢
+    const waitForFirebase = (check) => window.MSShared && window.MSShared.waitFor
+        ? window.MSShared.waitFor(check, { interval: 100, timeout: 5000 })
+        : new Promise((resolve) => {
+            let tries = 0;
+            const tick = () => check() ? resolve(true) : (++tries > 50 ? resolve(false) : setTimeout(tick, 100));
+            tick();
+        });
+
+    async function initFirebaseAuth() {
+        const ready = await waitForFirebase(() => window.firebaseAuth && window.onAuthStateChanged);
+        if (!ready) {
+            updateCloudStatus('offline', 'SDK 載入失敗 (離線模式)');
+            renderAuthUI(null);
             return;
         }
         window.onAuthStateChanged(window.firebaseAuth, async (user) => {
@@ -1391,29 +1401,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ---------------- 懸浮工具箱 ----------------
-    function renderToolboxMenu() {
-        const list = document.querySelector('.toolbox-items-list');
-        const tools = (Array.isArray(window.MS_TOOLS) ? window.MS_TOOLS : [])
-            .filter((t) => t && typeof t.name === 'string' && typeof t.url === 'string' && /^https:\/\//.test(t.url));
-        if (!list || tools.length === 0) return;
-        const home = list.querySelector('.toolbox-home');
-        const links = tools.map((t) => {
-            const active = t.id === THIS_TOOL_ID;
-            return h('a', { href: t.url, class: 'toolbox-item' + (active ? ' active' : '') },
-                (typeof t.emoji === 'string' ? t.emoji + ' ' : '') + t.name + (active ? ' (現行)' : ''));
-        });
-        // 工具箱還沒加入這個工具時，保留自己的連結
-        if (!tools.some((t) => t.id === THIS_TOOL_ID)) links.push(list.querySelector('.toolbox-item.active'));
-        list.replaceChildren(...[home, ...links].filter(Boolean));
-    }
-
+    // 選單重建交給共用檔；共用檔沒載入時維持 HTML 裡寫死的連結
     function loadToolboxMenu() {
-        const s = document.createElement('script');
-        s.src = TOOLBOX_TOOLS_URL;
-        s.async = true;
-        s.onload = renderToolboxMenu;
-        s.onerror = () => console.warn('[TOOLBOX] 讀不到工具箱的 tools.js，使用內建連結');
-        document.head.appendChild(s);
+        if (window.MSShared && window.MSShared.loadToolboxMenu) window.MSShared.loadToolboxMenu(THIS_TOOL_ID);
+        else console.warn('[TOOLBOX] 共用檔 shared.js 沒載入，使用內建連結');
     }
 
     // ---------------- 啟動 ----------------
