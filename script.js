@@ -82,6 +82,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     function hideToast() { $('toast').classList.remove('show'); }
 
+    // 沒被接住的非同步錯誤：提示使用者（10 秒內只提示一次，避免洗版）
+    let lastErrorToast = 0;
+    window.addEventListener('unhandledrejection', (e) => {
+        console.error('未處理的錯誤', e.reason);
+        if (Date.now() - lastErrorToast < 10000) return;
+        lastErrorToast = Date.now();
+        showToast('發生未預期的錯誤，剛才的操作可能沒完成，請重新整理後確認資料。', 'error');
+    });
+
     function downloadJson(obj, fileName) {
         const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
