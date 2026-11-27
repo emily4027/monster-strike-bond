@@ -31,8 +31,8 @@
 
 
 .auth-error {
-    color: #b92b27; font-size: 12px; margin: 0 auto 10px; padding: 5px;
-    background: #ffe6e6; border-radius: 4px; max-width: 480px;
+    color: var(--ms-danger); font-size: 12px; margin: 0 auto 10px; padding: 5px;
+    background: var(--ms-danger-soft); border-radius: 4px; max-width: 480px;
 }
 
 /* --- 區塊卡片 --- */
@@ -61,7 +61,7 @@
     border-radius: 999px; padding: 6px 16px; font-weight: 500;
     box-shadow: 0 2px 6px rgba(0,0,0,0.06);
 }
-.account-tab.active { background: var(--accent); color: white; }
+.account-tab.active { background: var(--accent); color: var(--ms-accent-contrast); }
 .account-tab.add { border: 2px dashed var(--accent); color: var(--accent-dark); background: transparent; box-shadow: none; }
 
 /* --- 帳號區塊 --- */
@@ -140,7 +140,7 @@
 .play-person-name { font-size: .85rem; font-weight: 700; min-width: 5em; }
 .play-pick-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .play-chip { border: 1px solid var(--ms-border-strong); background: var(--ms-surface); border-radius: 999px; padding: 4px 12px; font-size: .9rem; min-height: 36px; }
-.play-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.play-chip.on { background: var(--accent); border-color: var(--accent); color: var(--ms-accent-contrast); }
 .play-chip.own { border: 2px solid var(--acc, var(--accent)); color: var(--acc, var(--accent)); font-weight: 700; }
 .play-chip.own.on { background: var(--acc, var(--accent)); color: #fff; }
 .acc-pill { display: inline-block; background: var(--acc); color: #fff; font-weight: 700; border-radius: 999px; padding: 2px 12px; line-height: 1.6; }
@@ -154,7 +154,7 @@
 .play-steps li { margin: 4px 0; }
 .play-steps li.current { font-weight: 700; }
 .play-step-games { margin-left: 6px; }
-.play-step-now { margin-left: 6px; font-size: .75rem; background: var(--accent); color: #fff; border-radius: 6px; padding: 1px 6px; }
+.play-step-now { margin-left: 6px; font-size: .75rem; background: var(--accent); color: var(--ms-accent-contrast); border-radius: 6px; padding: 1px 6px; }
 .play-chip:disabled { opacity: .45; }
 .play-chip.done, .play-chip.done:disabled { opacity: 1; background: var(--done-light); border-color: var(--done); color: var(--done); font-weight: 700; }
 .play-chip-count { margin-left: 6px; font-size: .75rem; font-weight: 700; color: var(--done); background: var(--done-light); border-radius: 999px; padding: 0 6px; }
@@ -215,8 +215,8 @@
 
 .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .btn-row .btn { flex: 1 1 auto; min-height: 44px; }
-.btn-accent { background: var(--accent); border-color: var(--accent); color: white; font-weight: 700; }
-.btn-accent:hover, .btn-accent:focus { background: var(--accent-dark); border-color: var(--accent-dark); color: white; }
+.btn-accent { background: var(--accent); border-color: var(--accent); color: var(--ms-accent-contrast); font-weight: 700; }
+.btn-accent:hover, .btn-accent:focus { background: var(--accent-dark); border-color: var(--accent-dark); color: var(--ms-accent-contrast); }
 
 .reward-line { font-size: 0.9rem; }
 .reward-line.orb { color: color-mix(in srgb, #b58900 80%, var(--ms-text)); font-weight: 700; }
@@ -262,151 +262,9 @@
 }
 
 /* =====================================================================
-   共用風格銜接：把 Bootstrap 元件和懸浮工具箱接到 theme.css 的變數
-   （bond、gacha-data 也有同一段；之後可考慮搬進 theme.css）
-   ===================================================================== */
-.ms-page {
-    --bs-body-color: var(--ms-text);
-    --bs-emphasis-color: var(--ms-text);
-    --bs-secondary-color: var(--ms-text-muted);
-    --bs-border-color: var(--ms-border-strong);
-    --bs-secondary-bg: var(--ms-surface-2);
-    --bs-tertiary-bg: var(--ms-surface-2);
-    --bs-link-color-rgb: 79, 91, 213;
-    color: var(--ms-text);
-}
-.ms-page .text-muted { color: var(--ms-text-muted) !important; }
-.ms-page .form-label { color: var(--ms-text-muted); font-weight: 700; font-size: var(--ms-fs-sm); }
-.ms-page .form-control,
-.ms-page .form-select {
-    min-height: 40px;
-    border-radius: var(--ms-r-md);
-    border-color: var(--ms-border-strong);
-    background-color: var(--ms-surface);
-    color: var(--ms-text);
-}
-.ms-page .form-control::placeholder { color: var(--ms-text-faint); }
-.ms-page .form-control:focus,
-.ms-page .form-select:focus { border-color: var(--ms-accent); box-shadow: var(--ms-focus); }
-.ms-page .form-control:disabled,
-.ms-page .form-select:disabled { background-color: var(--ms-surface-2); color: var(--ms-text-faint); }
-.ms-page .input-group > .btn { border-color: var(--ms-border-strong); }
-.ms-page .table {
-    --bs-table-color: var(--ms-text);
-    --bs-table-bg: transparent;
-    --bs-table-border-color: var(--ms-border);
-    --bs-table-striped-bg: var(--ms-surface-2);
-    --bs-table-hover-bg: var(--ms-accent-soft);
-    --bs-table-hover-color: var(--ms-text);
-}
-.ms-page .modal-content { background: var(--ms-surface); color: var(--ms-text); border: 1px solid var(--ms-border); border-radius: var(--ms-r-lg); }
-.ms-page .modal-header, .ms-page .modal-footer { border-color: var(--ms-border); }
-:root[data-theme="dark"] .ms-page .btn-close { filter: invert(1) grayscale(1); }
-@media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .ms-page .btn-close { filter: invert(1) grayscale(1); }
-}
-
-/* 卡片標題列：沿用 Bootstrap 的 .card-header 名稱，去掉它的底色 */
-.ms-card > .card-header { background: none; border-radius: 0; padding-left: 0; padding-right: 0; padding-top: 0; }
-
-/* 懸浮工具箱：放進 .ms-float，點擊或滑鼠移上去展開 */
-.ms-float .toolbox-menu-wrapper { position: relative; display: flex; }
-.ms-float .toolbox-main-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--ms-sp-2);
-    width: 100%;
-    min-height: 40px;
-    padding: 0 var(--ms-sp-4);
-    border-radius: var(--ms-r-pill);
-    border: 1px solid var(--ms-text);
-    background: var(--ms-text);
-    color: var(--ms-surface);
-    font: 700 var(--ms-fs-sm) / 1 var(--ms-font);
-    box-shadow: var(--ms-shadow-md);
-    cursor: pointer;
-}
-.ms-float .toolbox-items-list {
-    position: absolute;
-    right: 0;
-    bottom: calc(100% + var(--ms-sp-2));
-    display: none;
-    flex-direction: column;
-    min-width: 200px;
-    max-height: none;
-    padding: var(--ms-sp-1);
-    background: var(--ms-surface);
-    border: 1px solid var(--ms-border);
-    border-radius: var(--ms-r-md);
-    box-shadow: var(--ms-shadow-lg);
-    overflow: visible;
-    margin: 0;
-}
-.ms-float .toolbox-menu-wrapper:hover .toolbox-items-list,
-.ms-float .toolbox-menu-wrapper:focus-within .toolbox-items-list,
-.ms-float .toolbox-menu-wrapper.is-open .toolbox-items-list { display: flex; max-height: none; margin: 0; }
-.ms-float .toolbox-item {
-    display: flex;
-    align-items: center;
-    gap: var(--ms-sp-2);
-    min-height: 40px;
-    padding: 0 var(--ms-sp-3);
-    border: none;
-    border-radius: var(--ms-r-sm);
-    background: none;
-    color: var(--ms-text);
-    box-shadow: none;
-    font-size: var(--ms-fs-sm);
-    justify-content: flex-start;
-    max-width: none;
-    white-space: nowrap;
-}
-.ms-float .toolbox-item:hover { background: var(--ms-surface-2); color: var(--ms-text); }
-.ms-float .toolbox-item.active { background: var(--ms-accent-soft); color: var(--ms-accent); font-weight: 700; }
-@media (max-width: 767.98px) {
-    .ms-float .toolbox-menu-wrapper { flex: 1 1 0; max-width: 200px; }
-    .ms-float .toolbox-main-btn { box-shadow: none; }
-}
-@media (min-width: 768px) {
-    .ms-float { flex-direction: column-reverse; }
-}
-
-/* 雲端狀態燈：JS 會重設 className 成 status-dot＋狀態，所以樣式掛在這些類別上 */
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ms-text-faint); display: inline-block; flex: none; }
-.status-online { background: var(--ms-success); }
-.status-saving { background: var(--ms-warning); }
-.status-offline { background: var(--ms-text-faint); }
-
-/* =====================================================================
    本工具版面
    ===================================================================== */
 .ms-header .cloud-status { margin: 0; }
 .ms-header .today-label { font-size: var(--ms-fs-sm); color: var(--ms-text-muted); }
 .ms-auth #user-info { gap: var(--ms-sp-2); padding-right: var(--ms-sp-1); }
 .ms-auth .ms-avatar[src=""] { display: none; }
-
-/* Bootstrap 按鈕接到共用風格：主要＝強調色、一般＝白底外框、危險＝紅色外框 */
-.ms-page .btn { --bs-btn-border-radius: var(--ms-r-md); --bs-btn-font-weight: 500; }
-.ms-page .btn-primary, .ms-page .btn-success, .ms-page .btn-info {
-    --bs-btn-bg: var(--ms-accent); --bs-btn-border-color: var(--ms-accent); --bs-btn-color: var(--ms-accent-contrast);
-    --bs-btn-hover-bg: var(--ms-accent); --bs-btn-hover-border-color: var(--ms-accent); --bs-btn-hover-color: var(--ms-accent-contrast);
-    --bs-btn-active-bg: var(--ms-accent); --bs-btn-active-border-color: var(--ms-accent); --bs-btn-active-color: var(--ms-accent-contrast);
-    --bs-btn-disabled-bg: var(--ms-accent); --bs-btn-disabled-border-color: var(--ms-accent); --bs-btn-disabled-color: var(--ms-accent-contrast);
-}
-.ms-page .btn-primary:hover, .ms-page .btn-success:hover, .ms-page .btn-info:hover { filter: brightness(1.08); }
-.ms-page .btn-secondary, .ms-page .btn-outline-secondary {
-    --bs-btn-bg: var(--ms-surface); --bs-btn-border-color: var(--ms-border-strong); --bs-btn-color: var(--ms-text);
-    --bs-btn-hover-bg: var(--ms-surface-2); --bs-btn-hover-border-color: var(--ms-border-strong); --bs-btn-hover-color: var(--ms-text);
-    --bs-btn-active-bg: var(--ms-surface-2); --bs-btn-active-border-color: var(--ms-border-strong); --bs-btn-active-color: var(--ms-text);
-}
-.ms-page .btn-outline-primary, .ms-page .btn-outline-success {
-    --bs-btn-color: var(--ms-accent); --bs-btn-border-color: color-mix(in srgb, var(--ms-accent) 50%, transparent);
-    --bs-btn-hover-bg: var(--ms-accent-soft); --bs-btn-hover-border-color: var(--ms-accent); --bs-btn-hover-color: var(--ms-accent);
-    --bs-btn-active-bg: var(--ms-accent-soft); --bs-btn-active-border-color: var(--ms-accent); --bs-btn-active-color: var(--ms-accent);
-}
-.ms-page .btn-danger, .ms-page .btn-outline-danger {
-    --bs-btn-bg: transparent; --bs-btn-color: var(--ms-danger); --bs-btn-border-color: color-mix(in srgb, var(--ms-danger) 45%, transparent);
-    --bs-btn-hover-bg: var(--ms-danger-soft); --bs-btn-hover-border-color: var(--ms-danger); --bs-btn-hover-color: var(--ms-danger);
-    --bs-btn-active-bg: var(--ms-danger-soft); --bs-btn-active-border-color: var(--ms-danger); --bs-btn-active-color: var(--ms-danger);
-}
