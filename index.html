@@ -88,7 +88,7 @@
                 <a href="https://emily4027.github.io/monster-strike-gacha-data/" class="toolbox-item toolbox-sub">🗂️ 轉蛋資料庫</a>
                 <a href="https://emily4027.github.io/monster-strike-bond/" class="toolbox-item active">🤝 羈絆場次工具 (現行)</a>
             </div>
-            <button type="button" class="toolbox-main-btn"><i class="bi bi-tools"></i> 工具箱</button>
+            <button type="button" class="toolbox-main-btn" aria-haspopup="true" aria-expanded="false"><i class="bi bi-tools"></i> 工具箱</button>
         </div>
 
         <a href="https://github.com/emily4027/monster-strike-bond" target="_blank" rel="noopener" class="github-project-link" title="前往 GitHub 專案頁面">
@@ -96,9 +96,17 @@
         </a>
     </nav>
     <script>
-        // 純畫面：手機點「工具箱」展開／收合清單（桌機滑鼠移上去也會展開）
-        document.querySelector('.ms-float .toolbox-main-btn')?.addEventListener('click', (e) => {
-            e.currentTarget.parentElement.classList.toggle('is-open');
+        // 備援：shared.js 沒載入時自己處理工具箱開關（點按鈕開／關、點選單外或按 Esc 關閉）；
+        // shared.js 已處理（外框有 data-toolbox-bound）就跳過
+        window.addEventListener('load', () => {
+            const wrap = document.querySelector('.ms-float .toolbox-menu-wrapper');
+            const btn = wrap && wrap.querySelector('.toolbox-main-btn');
+            if (!btn || wrap.hasAttribute('data-toolbox-bound')) return;
+            wrap.setAttribute('data-toolbox-bound', 'fallback');
+            const setOpen = (open) => { wrap.classList.toggle('is-open', open); btn.setAttribute('aria-expanded', String(open)); };
+            btn.addEventListener('click', () => setOpen(!wrap.classList.contains('is-open')));
+            document.addEventListener('pointerdown', (e) => { if (!wrap.contains(e.target)) setOpen(false); });
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setOpen(false); });
         });
     </script>
 
